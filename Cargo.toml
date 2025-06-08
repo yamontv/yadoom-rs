@@ -1,0 +1,11 @@
+[package]
+authors = ["Vyacheslav Yamont <yamontv@gmail.com>"]
+description = "Yet Another Doom"
+name = "yadoom-rs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+minifb = { version = "0.28", default-features = false, features = ["x11"] }
+anyhow = "1.0" 
+wad = { path = "wad" }
