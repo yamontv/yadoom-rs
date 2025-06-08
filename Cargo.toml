@@ -9,3 +9,4 @@ edition = "2024"
 minifb = { version = "0.28", default-features = false, features = ["x11"] }
 anyhow = "1.0" 
 wad = { path = "wad" }
+glam = "0.30.3"
