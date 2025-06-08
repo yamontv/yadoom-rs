@@ -1,4 +1,7 @@
-//! Minimal 2‑D Doom map viewer.
+//! Minimal 2-D Doom map viewer.
+//!
+//! ```bash
+//! cargo run --release -- <doom.wad> [map_idx]
 //! ```
 
 use minifb::{Key, Window, WindowOptions};
