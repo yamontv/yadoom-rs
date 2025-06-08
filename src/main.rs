@@ -30,6 +30,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     let level = wad.parse_level(markers[map_idx])?;
 
+    println!("{}", Wad::lump_name(&wad.lumps[markers[map_idx]].name));
+
     // ─────────── map‑space → screen‑space transform ────────────
     let (min_x, max_x) = level
         .vertices
