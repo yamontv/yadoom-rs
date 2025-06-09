@@ -9,8 +9,8 @@
 use glam::{Vec2, Vec3, Vec3Swizzles, vec2};
 use minifb::{Key, Window, WindowOptions};
 use std::error::Error;
-use wad::Wad;
-use wad::level::*; // Node, Subsector, Seg, …
+
+use yadoom_rs::wad::{Wad, level::*};
 
 // ─── constants ──────────────────────────────────────────────────────────────
 const WIDTH: usize = 1280;

@@ -16,7 +16,8 @@ use std::{
     error::Error,
     io::{Cursor, Read},
 };
-use wad::{Wad, level::*};
+
+use yadoom_rs::wad::{Wad, level::*};
 
 // ─── globals ────────────────────────────────────────────────────────────────
 const WIDTH: usize = 640;

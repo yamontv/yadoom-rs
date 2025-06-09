@@ -6,7 +6,8 @@
 
 use minifb::{Key, Window, WindowOptions};
 use std::error::Error;
-use wad::Wad;
+
+use yadoom_rs::wad::Wad;
 
 const WIDTH: usize = 1024;
 const HEIGHT: usize = 768;
