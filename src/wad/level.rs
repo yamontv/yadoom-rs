@@ -371,8 +371,6 @@ mod tests {
     /// Locate `assets/doom1.wad` relative to crate root.
     fn doom_wad() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap()
             .join("assets")
             .join("doom1.wad")
     }

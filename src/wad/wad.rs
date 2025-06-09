@@ -163,8 +163,6 @@ mod tests {
     /// Locate `<repo>/bin/doom1.wad` so both the engine and the tests share it.
     fn doom_wad() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")) // → <repo>/wad
-            .parent()
-            .unwrap() // → <repo>
             .join("assets")
             .join("doom1.wad")
     }
