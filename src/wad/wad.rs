@@ -238,7 +238,7 @@ mod tests {
     fn doom_wad() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("assets")
-            .join("doom1.wad")
+            .join("doom.wad")
     }
 
     #[test]

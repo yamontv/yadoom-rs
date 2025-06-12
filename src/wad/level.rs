@@ -196,7 +196,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn doom_wad() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/doom1.wad")
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/doom.wad")
     }
 
     #[test]
