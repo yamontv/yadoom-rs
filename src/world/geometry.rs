@@ -15,6 +15,8 @@ pub struct Level {
     pub subsectors: Vec<Subsector>,
     pub nodes: Vec<Node>,
     pub sectors: Vec<Sector>,
+    /// lookup: subsector → sector (filled by `Level::finalise_bsp`)
+    pub sector_of_subsector: Vec<u16>,
 }
 
 /*------------------------- game objects -----------------------------*/

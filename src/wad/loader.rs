@@ -140,6 +140,7 @@ pub fn load_level(
         subsectors,
         nodes,
         sectors,
+        sector_of_subsector: Vec::new(),
     })
 }
 
