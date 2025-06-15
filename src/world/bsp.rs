@@ -15,6 +15,10 @@
 use crate::world::geometry::{Level, Node};
 use glam::{Vec2, vec2};
 
+pub const CHILD_MASK: u16 = 0x7FFF;
+
+pub const SUBSECTOR_BIT: u16 = 0x8000;
+
 // ──────────────────────────────────────────────────────────────────────────
 //                       Level – public helpers
 // ──────────────────────────────────────────────────────────────────────────
@@ -31,8 +35,8 @@ impl Level {
         loop {
             let node = &self.nodes[idx];
             let child = node.child[node.point_side(p) as usize];
-            if child & 0x8000 != 0 {
-                return child & 0x7FFF;
+            if child & SUBSECTOR_BIT != 0 {
+                return child & CHILD_MASK;
             }
             idx = child as usize;
         }

@@ -11,7 +11,7 @@ use crate::{
     wad::{Wad, WadError, level as raw},
     world::{
         geometry as geo,
-        texture::{Texture, TextureBank, TextureError, TextureId},
+        texture::{NO_TEXTURE, Texture, TextureBank, TextureError, TextureId},
     },
 };
 use glam::vec2;
@@ -67,7 +67,7 @@ pub fn load_level(
         if let Some(tex) = decode_flat(wad, &palette, &name) {
             return Ok(bank.insert(name, tex)?);
         }
-        Ok(bank.missing())
+        Ok(NO_TEXTURE)
     };
 
     /*----- 5. Convert raw → geo lists ------------------------------------*/
@@ -393,7 +393,7 @@ mod tests {
         assert!(lvl.vertices.len() > 300);
         assert!(bank.len() > 1);
 
-        let id = bank.id("STARTAN3").unwrap_or(bank.missing());
+        let id = bank.id("STARTAN3").unwrap_or(NO_TEXTURE);
         let tex = bank.texture(id).unwrap();
         assert_eq!(tex.w, 128);
         assert_eq!(tex.h, 128); // STARTAN textures are 128×128

@@ -8,6 +8,10 @@ use std::collections::HashMap;
 /// *Guaranteed* to remain stable for the lifetime of the bank.
 pub type TextureId = u16;
 
+/// `TextureId` whose pixels are the checkerboard fallback.
+/// Always = 0 because `TextureBank::new()` inserts it first.
+pub const NO_TEXTURE: TextureId = 0;
+
 /// CPU-side storage: 32-bit **ARGB**  (0xAARRGGBB) in row-major order.
 /// The loader fills the pixel vector; the renderer may later upload it
 /// to the GPU and drop the CPU copy if desired.
@@ -41,7 +45,6 @@ pub enum TextureError {
 pub struct TextureBank {
     by_name: HashMap<String, TextureId>,
     data: Vec<Texture>,
-    missing: TextureId,
 }
 
 impl TextureBank {
@@ -54,11 +57,10 @@ impl TextureBank {
     /// and obtains the handle **0**.
     pub fn new(missing_tex: Texture) -> Self {
         let mut by_name = HashMap::new();
-        by_name.insert("MISSING".into(), 0);
+        by_name.insert("MISSING".into(), NO_TEXTURE);
         Self {
             by_name,
             data: vec![missing_tex],
-            missing: 0,
         }
     }
 
@@ -101,7 +103,7 @@ impl TextureBank {
 
     /// Fallback-safe query: unknown names resolve to the checkerboard id.
     pub fn id_or_missing(&self, name: &str) -> TextureId {
-        self.id(name).unwrap_or(self.missing)
+        self.id(name).unwrap_or(NO_TEXTURE)
     }
 
     /// Borrow a texture by id, with bounds-checking.
@@ -114,11 +116,6 @@ impl TextureBank {
         self.data
             .get_mut(id as usize)
             .ok_or(TextureError::BadId(id))
-    }
-
-    /// Numeric handle of the checkerboard fallback.
-    pub fn missing(&self) -> TextureId {
-        self.missing
     }
 
     // ---------------------------------------------------------------------
@@ -166,7 +163,7 @@ mod tests {
         let red = bank.insert("RED", dummy_tex(0xFF_FF0000)).unwrap();
         let blue = bank.insert("BLUE", dummy_tex(0xFF_0000FF)).unwrap();
 
-        assert_ne!(red, bank.missing());
+        assert_ne!(red, NO_TEXTURE);
         assert_ne!(blue, red);
         assert_eq!(bank.id("RED"), Some(red));
         assert_eq!(bank.id("BLUE"), Some(blue));
