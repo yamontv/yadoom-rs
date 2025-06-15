@@ -28,15 +28,15 @@ impl Camera {
     ///  .y = depth along forward axis
     #[inline]
     pub fn to_cam(&self, p: Vec2) -> Vec2 {
-        // vector from camera to point
-        let d = p - self.pos.truncate();
-        // get unit‐length basis
-        let f = self.forward();
-        let r = self.right();
-        // project into that basis
-        let depth = d.dot(f);
-        let lateral = d.dot(r);
-        vec2(lateral, depth)
+         // Translate into camera space
+        let dx = p.x - self.pos.x;
+        let dy = p.y - self.pos.y;
+        // Precompute sin/cos of yaw
+        let (s, c) = self.yaw.sin_cos();
+        // Rotate by -yaw: align world so camera forward is +X
+        let x_cam = dx * c + dy * s;
+        let y_cam = dx * s - dy * c;
+        vec2(y_cam, x_cam)
     }
 
     /*──────────────────────── derived vectors ───────────────────────*/

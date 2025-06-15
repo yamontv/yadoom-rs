@@ -9,7 +9,7 @@
 //! whose lifetime is bounded by `begin_frame`/`end_frame`.
 //! ---------------------------------------------------------------------------
 use crate::{
-    renderer::{DrawCall, Renderer, Rgba},
+    renderer::{ClipKind, DrawCall, Renderer, Rgba},
     world::texture::{NO_TEXTURE, TextureBank},
 };
 
@@ -26,6 +26,10 @@ pub struct Software {
     fb_len: usize,
     width: usize,
     height: usize,
+
+    // per-column clip bands, re-used each frame
+    ceil_clip: Vec<i16>,
+    floor_clip: Vec<i16>,
 }
 
 impl Default for Software {
@@ -35,6 +39,8 @@ impl Default for Software {
             fb_len: 0,
             width: 0,
             height: 0,
+            ceil_clip: Vec::new(),
+            floor_clip: Vec::new(),
         }
     }
 }
@@ -50,6 +56,12 @@ impl Renderer for Software {
         self.width = w;
         self.height = h;
         buf.fill(0xFF_202020); // dark-grey clear
+
+        // reset clip bands each frame
+        self.ceil_clip.clear();
+        self.ceil_clip.resize(w, 0);
+        self.floor_clip.clear();
+        self.floor_clip.resize(w, h as i16 - 1);
     }
 
     fn draw_wall(&mut self, dc: &DrawCall, bank: &TextureBank) {
@@ -57,7 +69,6 @@ impl Renderer for Software {
         let fb: &mut [u32] = unsafe { core::slice::from_raw_parts_mut(self.fb_ptr, self.fb_len) };
 
         let w = self.width;
-        let h = self.height as f32;
 
         // one texture lookup per call, with checker fallback
         let tex = bank
@@ -77,18 +88,41 @@ impl Renderer for Software {
         let mut y_bot = dc.y_bot0;
 
         for x in dc.x_start..=dc.x_end {
-            if (0..w as i32).contains(&x) {
-                let col = x as usize;
-                let u = ((uoz / inv_z) as i32).rem_euclid(tex.w as i32) as usize;
+            if let Some(&col_clip_top) = self.ceil_clip.get(x as usize) {
+                if let Some(&col_clip_bot) = self.floor_clip.get(x as usize) {
+                    // compute this column's unclipped Y
+                    let yt = y_top;
+                    let yb = y_bot;
 
-                let y0 = y_top.max(0.0) as i32;
-                let y1 = y_bot.min(h - 1.0) as i32;
-                if y0 < y1 {
-                    let wall_h = (y_bot - y_top).max(1.0);
-                    for y in y0..=y1 {
-                        let frac = (y as f32 - y_top) / wall_h;
-                        let v = ((frac * tex.h as f32) as i32).rem_euclid(tex.h as i32) as usize;
-                        fb[y as usize * w + col] = tex.pixels[v * tex.w + u];
+                    // test against current clip bands
+                    if yt < col_clip_bot as f32 && yb > col_clip_top as f32 {
+                        // clip into integer pixel rows
+                        let y0 = yt.max(col_clip_top as f32) as i32;
+                        let y1 = yb.min(col_clip_bot as f32) as i32;
+
+                        // draw vertical slice
+                        let col = x as usize;
+                        for y in y0..=y1 {
+                            let frac = (y as f32 - y_top) / (y_bot - y_top).max(1.0);
+                            let u = ((uoz / inv_z) as i32).rem_euclid(tex.w as i32) as usize;
+                            let v =
+                                ((frac * tex.h as f32) as i32).rem_euclid(tex.h as i32) as usize;
+                            fb[y as usize * w + col] = tex.pixels[v * tex.w + u];
+                        }
+
+                        // now update the clip bands for this column
+                        match dc.kind {
+                            ClipKind::Solid => {
+                                self.ceil_clip[col] = (y1 as i16).saturating_add(1);
+                                self.floor_clip[col] = (y0 as i16).saturating_sub(1);
+                            }
+                            ClipKind::Upper => {
+                                self.ceil_clip[col] = (y1 as i16).saturating_add(1);
+                            }
+                            ClipKind::Lower => {
+                                self.floor_clip[col] = (y0 as i16).saturating_sub(1);
+                            }
+                        }
                     }
                 }
             }
@@ -144,6 +178,7 @@ mod tests {
             y_top1: 1.0,
             y_bot0: 4.0,
             y_bot1: 4.0,
+            kind: ClipKind::Lower,
         }
     }
 

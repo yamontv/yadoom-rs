@@ -6,8 +6,8 @@ use yadoom_rs::{
     world::{camera::Camera, texture::TextureBank},
 };
 
-const W: usize = 640;
-const H: usize = 400;
+const W: usize = 1280;
+const H: usize = 800;
 const SPEED: f32 = 150.0;
 const TURN: f32 = std::f32::consts::PI;
 const DT: f32 = 1. / 35.;
@@ -41,16 +41,16 @@ fn main() -> anyhow::Result<()> {
             dy -= SPEED * DT;
         }
         if win.is_key_down(Key::A) {
-            dx -= SPEED * DT;
-        }
-        if win.is_key_down(Key::D) {
             dx += SPEED * DT;
         }
+        if win.is_key_down(Key::D) {
+            dx -= SPEED * DT;
+        }
         if win.is_key_down(Key::Left) {
-            yaw -= TURN * DT;
+            yaw += TURN * DT;
         }
         if win.is_key_down(Key::Right) {
-            yaw += TURN * DT;
+            yaw -= TURN * DT;
         }
 
         cam.turn(yaw);
