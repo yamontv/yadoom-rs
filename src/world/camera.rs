@@ -28,7 +28,7 @@ impl Camera {
     ///  .y = depth along forward axis
     #[inline]
     pub fn to_cam(&self, p: Vec2) -> Vec2 {
-         // Translate into camera space
+        // Translate into camera space
         let dx = p.x - self.pos.x;
         let dy = p.y - self.pos.y;
         // Precompute sin/cos of yaw
@@ -118,8 +118,8 @@ mod tests {
         let cam = Camera::new(Vec3::ZERO, 0.0, FRAC_PI_2);
         // Point straight ahead at (10, 0) → (lateral=0, forward=10)
         assert!((cam.to_cam(vec2(10.0, 0.0)) - vec2(0.0, 10.0)).length() < 1e-5);
-        // Point to the right at (0, 5) → (lateral=5, forward=0)
-        assert!((cam.to_cam(vec2(0.0, 5.0)) - vec2(5.0, 0.0)).length() < 1e-5);
+        // Point to the left at (0, 5) → (lateral = -5, forward = 0)
+        assert!((cam.to_cam(vec2(0.0, 5.0)) - vec2(-5.0, 0.0)).length() < 1e-5);
     }
 
     #[test]

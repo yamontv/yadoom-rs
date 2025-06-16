@@ -47,6 +47,9 @@ pub struct DrawCall {
     pub y_bot1: f32, // floor   at x_end
 
     pub kind: ClipKind,
+
+    pub wall_h: f32,        // ceiling_z - floor_z in map units
+    pub texturemid_mu: f32, // (ceil_h − eyeZ) + y_off     in map units
 }
 
 /// Backend-agnostic rendering interface.

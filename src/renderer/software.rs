@@ -102,12 +102,32 @@ impl Renderer for Software {
 
                         // draw vertical slice
                         let col = x as usize;
+
+                        /*------------------------------------------------------
+                         * True Doom tiling:
+                         * v_world      – distance in map units from wall top
+                         * step_v       – map-units advanced per screen pixel
+                         * tex_v        – (v_world + y_off)  mod texture_h
+                         *-----------------------------------------------------*/
+
+                        let col_h_px = (y_bot - y_top).max(1.0); // pixels
+                        let step_v = dc.wall_h / col_h_px; // map-units per pixel
+                        // Doom: start from one common “texturemid”
+                        let center_y = self.height as f32 * 0.5;
+                        let mut v_w = dc.texturemid_mu + (y0 as f32 - center_y) * step_v; // shared origin
+
+                        let tex_w_i32 = tex.w as i32;
+                        let tex_h_i32 = tex.h as i32;
+
+                        /* horizontal coordinate is constant inside this column */
+                        let u = ((uoz / inv_z) as i32).rem_euclid(tex_w_i32) as usize;
+
                         for y in y0..=y1 {
-                            let frac = (y as f32 - y_top) / (y_bot - y_top).max(1.0);
-                            let u = ((uoz / inv_z) as i32).rem_euclid(tex.w as i32) as usize;
-                            let v =
-                                ((frac * tex.h as f32) as i32).rem_euclid(tex.h as i32) as usize;
-                            fb[y as usize * w + col] = tex.pixels[v * tex.w + u];
+                            // texture row: (world offset + sidedef y_off) mod tex.h
+                            let v_tex = (v_w as i32).rem_euclid(tex_h_i32) as usize;
+
+                            fb[y as usize * w + col] = tex.pixels[v_tex * tex.w + u];
+                            v_w += step_v; // advance one pixel
                         }
 
                         // now update the clip bands for this column
@@ -179,6 +199,8 @@ mod tests {
             y_bot0: 4.0,
             y_bot1: 4.0,
             kind: ClipKind::Lower,
+            texturemid_mu: 0.0,
+            wall_h: 10.0,
         }
     }
 

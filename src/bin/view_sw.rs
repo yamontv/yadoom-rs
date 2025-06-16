@@ -23,7 +23,6 @@ fn main() -> anyhow::Result<()> {
     level.finalise_bsp();
 
     let player = level.things.iter().find(|t| t.type_id == 1).unwrap();
-    dbg!(player);
     let mut cam = Camera::new(player.pos.extend(41.0), player.angle, 110_f32.to_radians());
 
     let mut win = Window::new("Software Doom viewer", W, H, WindowOptions::default())?;

@@ -1,14 +1,14 @@
-//! -------------------------------------------------------------------------
-//! BSP → [DrawCall] list for the **software column renderer**
+//! ---------------------------------------------------------------------------
+//! BSP → DrawCalls for the software column renderer
 //!
-//! * Walks the BSP _front-to-back_ so overdraw can be culled later with a
-//!   solid-column buffer.
-//! * Emits **one DrawCall per visible wall section**
-//!   (upper-portal, lower-portal, solid middle).
+//! * Walks the BSP **front-to-back** so the later span-drawer can cull overdraw
+//!   with a per-column clip buffer.
+//! * Emits **one DrawCall per wall span** (upper portal, lower portal, solid).
 //! * Computes perspective-correct u/z once per edge.
 //!
-//! TODO (future work): visplanes, sprites, light-levels, unpegged flags
-//! -------------------------------------------------------------------------
+//! TODO: visplanes, sprites, lighting tables
+//! ---------------------------------------------------------------------------
+
 use glam::{Vec2, vec2};
 
 use crate::{
@@ -21,295 +21,365 @@ use crate::{
     },
 };
 
-/// Bundles viewport parameters
+/*──────────────────────────── View helpers ───────────────────────────*/
+
+/// Everything the renderer needs to turn world units into screen pixels.
+#[derive(Clone, Copy)]
 struct ViewParams {
     half_w: f32,
     half_h: f32,
     focal: f32,
     view_w: usize,
-    cam_floor_z: f32,
+    eye_floor_z: f32, // player’s Z on the floor under their feet
 }
 
-// Helper to locate the subsector containing a point
-fn find_subsector_for_point(level: &Level, point: Vec2) -> usize {
-    // Walk the BSP tree down to a subsector leaf
-    let mut idx = level.bsp_root() as u16;
-    loop {
-        if idx & SUBSECTOR_BIT != 0 {
-            return (idx & CHILD_MASK) as usize;
-        }
-        let node = &level.nodes[idx as usize];
-        let side = node.point_side(point) as usize;
-        idx = node.child[side];
-    }
-}
+/*──────────────────────────── Entry point ────────────────────────────*/
 
-/// Once you know the subsector, grab its first seg → sidedef → sector.
-fn get_floor_height(level: &Level, cam_xy: Vec2) -> f32 {
-    let ss_idx = find_subsector_for_point(level, cam_xy);
-    let ss = &level.subsectors[ss_idx];
-    let seg = &level.segs[ss.first_seg as usize];
-    let ld = &level.linedefs[seg.linedef as usize];
-
-    let sd_index = if seg.dir == 0 {
-        ld.right_sidedef
-    } else {
-        ld.left_sidedef
-    }
-    .expect("subsector seg must have a sidedef");
-    let sd = &level.sidedefs[sd_index as usize];
-    let sec = &level.sectors[sd.sector as usize];
-    sec.floor_h as f32
-}
-
-/*=======================================================================*/
-/*                           Public entry                                */
-/*=======================================================================*/
-
-/// Build visibility-sorted wall spans.
-///
-/// w, h – viewport size in pixels (Y projection is done here so the
-///            back-end loop stays a simple vertical span-drawer).
 pub fn build_drawcalls(level: &Level, cam: &Camera, w: usize, h: usize) -> Vec<DrawCall> {
-    let mut out = Vec::<DrawCall>::with_capacity(2048);
+    let eye_floor = floor_height_under_player(level, cam.pos().truncate());
 
     let view = ViewParams {
         half_w: w as f32 * 0.5,
         half_h: h as f32 * 0.5,
         focal: cam.screen_scale(w),
         view_w: w,
-        cam_floor_z: get_floor_height(level, cam.pos().truncate()),
+        eye_floor_z: eye_floor,
     };
 
-    recurse_node(level.bsp_root() as u16, level, cam, &mut out, &view);
-    out
+    let mut calls = Vec::<DrawCall>::with_capacity(2_048);
+    walk_bsp(level.bsp_root() as u16, level, cam, &view, &mut calls);
+    calls
 }
 
-/*=======================================================================*/
-/*                         BSP recursion                                 */
-/*=======================================================================*/
+/*──────────────────────────── BSP traversal ──────────────────────────*/
 
-fn recurse_node(child: u16, lvl: &Level, cam: &Camera, out: &mut Vec<DrawCall>, view: &ViewParams) {
+fn walk_bsp(child: u16, lvl: &Level, cam: &Camera, view: &ViewParams, out: &mut Vec<DrawCall>) {
     if child & SUBSECTOR_BIT != 0 {
-        draw_subsector(child & CHILD_MASK, lvl, cam, out, view);
+        draw_subsector(child & CHILD_MASK, lvl, cam, view, out);
     } else {
         let node = &lvl.nodes[child as usize];
-        let side = node.point_side(cam.pos().truncate()) as usize; // 0 front, 1 back
-        let first = node.child[side]; // front first
-        let back = node.child[side ^ 1]; // then far side
-        recurse_node(first, lvl, cam, out, view);
-        recurse_node(back, lvl, cam, out, view);
+        let front = node.point_side(cam.pos().truncate()) as usize;
+        let back = front ^ 1;
+
+        walk_bsp(node.child[front], lvl, cam, view, out); // near
+        walk_bsp(node.child[back], lvl, cam, view, out); // far
     }
 }
 
-/*=======================================================================*/
-/*                          Leaf drawing                                 */
-/*=======================================================================*/
-/// Rasterise one BSP subsector into a set of wall-slice [DrawCall]s.
+/*───────────────────────── subsector → spans ─────────────────────────*/
+
 fn draw_subsector(
     ss_idx: u16,
     lvl: &Level,
     cam: &Camera,
-    out: &mut Vec<DrawCall>,
     view: &ViewParams,
+    out: &mut Vec<DrawCall>,
 ) {
-    /*--------------------------------------------------------------*/
     for seg_idx in lvl.segs_of_subsector(ss_idx) {
-        let seg = &lvl.segs[seg_idx as usize];
-
-        /*----- 0.  back-face cull  --------------------------------------*/
-        // Build the 2-D wall vector in *map* space.
-        let a = lvl.vertices[seg.v1 as usize].pos;
-        let b = lvl.vertices[seg.v2 as usize].pos;
-        let wall = b - a; // points v1 → v2
-
-        // The normal that should face the player is “wall rotated +90°”.
-        // SEG::dir==0 ⇒ the *right* sidedef is the visible face,
-        // so the outward normal is  ( dy , -dx ).
-        // SEG::dir==1 ⇒ left side is visible  ⇒ flip normal.
-        let mut n = vec2(wall.y, -wall.x); // right-hand normal
-        if seg.dir != 0 {
-            n = -n;
-        } // flip for left-hand segs
-
-        // If the normal points away (dot≤0) the wall is a back-face → skip.
-        if n.dot(cam.pos().truncate() - a) <= 0.0 {
+        if back_facing(seg_idx, lvl, cam) {
             continue;
         }
 
-        /*-- 1. endpoints in camera space ---------------------------*/
-        let v1 = lvl.vertices[seg.v1 as usize].pos;
-        let v2 = lvl.vertices[seg.v2 as usize].pos;
-        let mut p1 = cam.to_cam(v1);
-        let mut p2 = cam.to_cam(v2);
-
-        let near = cam.near() + 1e-3;
-
-        if p1.y <= near && p2.y <= near {
-            continue; // both behind the near-plane
-        }
-
-        /*-- 2. near-plane clip  (track t so we can compute tex-U) --*/
-        let mut t1 = 0.0;
-        let mut t2 = 1.0;
-        if p1.y < cam.near() {
-            let t = (cam.near() - p1.y) / (p2.y - p1.y);
-            p1 += (p2 - p1) * t;
-            p1.y = cam.near();
-            t1 = t;
-        }
-        if p2.y < cam.near() {
-            let t = (cam.near() - p2.y) / (p1.y - p2.y);
-            p2 += (p1 - p2) * t;
-            p2.y = cam.near();
-            t2 = 1.0 - t;
-        }
-
-        /*-- 3. project to screen X --------------------------------*/
-        let mut sx1 = view.half_w + p1.x * view.focal / p1.y;
-        let mut sx2 = view.half_w + p2.x * view.focal / p2.y;
-
-        if (sx1 < 0.0 && sx2 < 0.0) || (sx1 >= view.half_w * 2.0 && sx2 >= view.half_w * 2.0) {
-            continue; // completely off-screen
-        }
-
-        if sx1 > sx2 {
-            core::mem::swap(&mut sx1, &mut sx2);
-            core::mem::swap(&mut p1, &mut p2);
-            core::mem::swap(&mut t1, &mut t2);
-        }
-
-        let x_l = sx1.max(0.0) as i32;
-        let x_r = sx2.min(view.view_w as f32 - 1.0) as i32;
-        if x_l >= x_r {
-            continue;
-        }
-
-        /*-- 3½. interpolate edge params at the clip limits ---------*/
-        let span_full = sx2 - sx1;
-        let frac_l = (x_l as f32 - sx1) / span_full;
-        let frac_r = (x_r as f32 - sx1) / span_full;
-
-        let wall_len = (v2 - v1).length();
-        let ld = &lvl.linedefs[seg.linedef as usize];
-        let (sd_f, sd_b) = if seg.dir == 0 {
-            (ld.right_sidedef, ld.left_sidedef)
-        } else {
-            (ld.left_sidedef, ld.right_sidedef)
-        };
-
-        let sd_front = sd_f
-            .and_then(|i| lvl.sidedefs.get(i as usize))
-            .expect("front sidedef must exist");
-        let sec_front = &lvl.sectors[sd_front.sector as usize];
-
-        let (have_back, sec_back) = if let Some(idx) = sd_b {
-            if let Some(sd) = lvl.sidedefs.get(idx as usize) {
-                (true, &lvl.sectors[sd.sector as usize])
-            } else {
-                (false, sec_front)
-            }
-        } else {
-            (false, sec_front)
-        };
-
-        /* perspective helpers shared by all spans in this slice */
-        let invz_p1 = 1.0 / p1.y;
-        let invz_p2 = 1.0 / p2.y;
-        let uoz_p1 = (sd_front.x_off as f32 + wall_len * t1) * invz_p1;
-        let uoz_p2 = (sd_front.x_off as f32 + wall_len * t2) * invz_p2;
-
-        let invz_l = invz_p1 + (invz_p2 - invz_p1) * frac_l;
-        let invz_r = invz_p1 + (invz_p2 - invz_p1) * frac_r;
-        let uoz_l = uoz_p1 + (uoz_p2 - uoz_p1) * frac_l;
-        let uoz_r = uoz_p1 + (uoz_p2 - uoz_p1) * frac_r;
-
-        /*-------------- inner helper to push ONE span ----------------*/
-        let mut push_span = |tex: TextureId, ceil_h: f32, floor_h: f32, how: ClipKind| {
-            let eye_world_z = view.cam_floor_z + cam.pos().z;
-            //  + sd_front.y_off as f32;
-
-            /* 1. project to screen-Y */
-            let y_top_l = view.half_h - (ceil_h - eye_world_z) * view.focal * invz_l;
-            let y_top_r = view.half_h - (ceil_h - eye_world_z) * view.focal * invz_r;
-            let y_bot_l = view.half_h - (floor_h - eye_world_z) * view.focal * invz_l;
-            let y_bot_r = view.half_h - (floor_h - eye_world_z) * view.focal * invz_r;
-
-            /* 3. finally emit the DrawCall */
-            out.push(DrawCall {
-                tex_id: tex,
-                u0_over_z: uoz_l,
-                u1_over_z: uoz_r,
-                inv_z0: invz_l,
-                inv_z1: invz_r,
-                x_start: x_l,
-                x_end: x_r,
-                y_top0: y_top_l,
-                y_top1: y_top_r,
-                y_bot0: y_bot_l,
-                y_bot1: y_bot_r,
-                kind: how,
-            });
-        };
-
-        /*-------------- decide which spans to draw ------------------*/
-        if have_back && ld.flags.contains(LinedefFlags::TWO_SIDED) {
-            /* upper portal */
-            if sec_back.ceil_h < sec_front.ceil_h {
-                push_span(
-                    sd_front.upper,
-                    sec_front.ceil_h as f32,
-                    sec_back.ceil_h as f32,
-                    ClipKind::Upper,
-                );
-            }
-            /* lower portal */
-            if sec_back.floor_h > sec_front.floor_h {
-                push_span(
-                    sd_front.lower,
-                    sec_back.floor_h as f32,
-                    sec_front.floor_h as f32,
-                    ClipKind::Lower,
-                );
-            }
-        } else {
-            /* one-sided */
-            push_span(
-                sd_front.middle,
-                sec_front.ceil_h as f32,
-                sec_front.floor_h as f32,
-                ClipKind::Solid,
-            );
+        if let Some(edge) = project_seg(seg_idx, lvl, cam, view) {
+            build_spans(edge, lvl, cam, view, out);
         }
     }
 }
 
-/*=======================================================================*/
+/*──────────────────────── back-face cull ─────────────────────────────*/
+
+fn back_facing(seg_idx: u16, lvl: &Level, cam: &Camera) -> bool {
+    let seg = &lvl.segs[seg_idx as usize];
+    let a = lvl.vertices[seg.v1 as usize].pos;
+    let b = lvl.vertices[seg.v2 as usize].pos;
+    let wall = b - a;
+    let mut n = vec2(wall.y, -wall.x); // right-hand normal
+    if seg.dir != 0 {
+        n = -n;
+    } // flip for left-hand segs
+    n.dot(cam.pos().truncate() - a) <= 0.0 // ≤ 0 ⇒ facing away
+}
+
+/*───────────────────── Geometry → screen X band ─────────────────────*/
+
+/// Everything the clipping / span builder needs for one visible edge.
+struct Edge {
+    x_l: i32,
+    x_r: i32,
+    invz_l: f32,
+    invz_r: f32,
+    uoz_l: f32,
+    uoz_r: f32,
+    frac_l: f32,
+    seg_idx: u16,
+}
+
+fn project_seg(seg_idx: u16, lvl: &Level, cam: &Camera, view: &ViewParams) -> Option<Edge> {
+    let seg = &lvl.segs[seg_idx as usize];
+    // World endpoints → camera space
+    let v1 = lvl.vertices[seg.v1 as usize].pos;
+    let v2 = lvl.vertices[seg.v2 as usize].pos;
+    let mut p1 = cam.to_cam(v1);
+    let mut p2 = cam.to_cam(v2);
+
+    // Near-plane clip (track tex-coord t1,t2)
+    let mut t1 = 0.0;
+    let mut t2 = 1.0;
+    if !clip_near(&mut p1, &mut p2, &mut t1, &mut t2, cam) {
+        return None;
+    }
+
+    // Project to screen X
+    let mut sx1 = view.half_w + p1.x * view.focal / p1.y;
+    let mut sx2 = view.half_w + p2.x * view.focal / p2.y;
+    if (sx1 < 0.0 && sx2 < 0.0) || (sx1 >= view.half_w * 2.0 && sx2 >= view.half_w * 2.0) {
+        return None; // completely off-screen
+    }
+
+    // Ensure  p1 → p2 is left → right in screen space
+    if sx1 > sx2 {
+        core::mem::swap(&mut sx1, &mut sx2);
+        core::mem::swap(&mut p1, &mut p2);
+        core::mem::swap(&mut t1, &mut t2);
+    }
+
+    let x_l = sx1.max(0.0) as i32;
+    let x_r = sx2.min(view.view_w as f32 - 1.0) as i32;
+    if x_l >= x_r {
+        return None;
+    }
+
+    // Perspective helpers shared by all spans on this edge
+    let invz_p1 = 1.0 / p1.y;
+    let invz_p2 = 1.0 / p2.y;
+    let wall_len = (v2 - v1).length();
+    let uoz_p1 = t1 * wall_len * invz_p1;
+    let uoz_p2 = t2 * wall_len * invz_p2;
+
+    let span = sx2 - sx1;
+    let frac_l = (x_l as f32 - sx1) / span;
+    let frac_r = (x_r as f32 - sx1) / span;
+
+    Some(Edge {
+        x_l,
+        x_r,
+        invz_l: invz_p1 + (invz_p2 - invz_p1) * frac_l,
+        invz_r: invz_p1 + (invz_p2 - invz_p1) * frac_r,
+        uoz_l: uoz_p1 + (uoz_p2 - uoz_p1) * frac_l,
+        uoz_r: uoz_p1 + (uoz_p2 - uoz_p1) * frac_r,
+        frac_l,
+        seg_idx: seg_idx as u16,
+    })
+}
+
+/// Clip a segment to the near plane. Returns false if completely behind.
+fn clip_near(
+    p1: &mut glam::Vec2,
+    p2: &mut glam::Vec2,
+    t1: &mut f32,
+    t2: &mut f32,
+    cam: &Camera,
+) -> bool {
+    let near = cam.near();
+    if p1.y <= near && p2.y <= near {
+        return false;
+    }
+    if p1.y < near {
+        let t = (near - p1.y) / (p2.y - p1.y);
+        *p1 += (*p2 - *p1) * t;
+        p1.y = near;
+        *t1 = t;
+    }
+    if p2.y < near {
+        let t = (near - p2.y) / (p1.y - p2.y);
+        *p2 += (*p1 - *p2) * t;
+        p2.y = near;
+        *t2 = 1.0 - t;
+    }
+    true
+}
+
+/*────────────────────── span construction helpers ───────────────────*/
+
+fn build_spans(edge: Edge, lvl: &Level, cam: &Camera, view: &ViewParams, out: &mut Vec<DrawCall>) {
+    // Resolve sidedefs / sectors ------------------------------------------------
+    let seg = &lvl.segs[edge.seg_idx as usize];
+    let ld = &lvl.linedefs[seg.linedef as usize];
+    let (sd_f, sd_b) = if seg.dir == 0 {
+        (ld.right_sidedef, ld.left_sidedef)
+    } else {
+        (ld.left_sidedef, ld.right_sidedef)
+    };
+    let sd_front = sd_f
+        .and_then(|i| lvl.sidedefs.get(i as usize))
+        .expect("front sidedef must exist");
+    let sec_front = &lvl.sectors[sd_front.sector as usize];
+
+    let (have_back, sec_back) = if let Some(idx) = sd_b {
+        if let Some(sd) = lvl.sidedefs.get(idx as usize) {
+            (true, &lvl.sectors[sd.sector as usize])
+        } else {
+            (false, sec_front)
+        }
+    } else {
+        (false, sec_front)
+    };
+
+    // Closure that pushes ONE vertical span ------------------------------------
+    let eye_z = view.eye_floor_z + cam.pos().z;
+    let mut push = |tex: TextureId, ceil_h: f32, floor_h: f32, kind: ClipKind| {
+        let wall_h = (ceil_h - floor_h).abs();
+        let y_off = sd_front.y_off as f32; // raw sidedef offset
+        let tm_mu = texturemid(kind, ld.flags, ceil_h, floor_h, eye_z, y_off);
+
+        out.push(DrawCall {
+            /* projection */
+            tex_id: tex,
+            u0_over_z: edge.uoz_l + (edge.uoz_r - edge.uoz_l) * edge.frac_l,
+            u1_over_z: edge.uoz_r,
+            inv_z0: edge.invz_l,
+            inv_z1: edge.invz_r,
+            x_start: edge.x_l,
+            x_end: edge.x_r,
+            y_top0: view.half_h - (ceil_h - eye_z) * view.focal * edge.invz_l,
+            y_top1: view.half_h - (ceil_h - eye_z) * view.focal * edge.invz_r,
+            y_bot0: view.half_h - (floor_h - eye_z) * view.focal * edge.invz_l,
+            y_bot1: view.half_h - (floor_h - eye_z) * view.focal * edge.invz_r,
+            kind,
+            /* tiling */
+            wall_h,
+            texturemid_mu: tm_mu,
+        });
+    };
+
+    // Decide which spans to draw -----------------------------------------------
+    if have_back && ld.flags.contains(LinedefFlags::TWO_SIDED) {
+        // ─ upper portal
+        if sec_back.ceil_h < sec_front.ceil_h {
+            push(
+                sd_front.upper,
+                sec_front.ceil_h as f32,
+                sec_back.ceil_h as f32,
+                ClipKind::Upper,
+            );
+        }
+        // ─ lower portal
+        if sec_back.floor_h > sec_front.floor_h {
+            push(
+                sd_front.lower,
+                sec_back.floor_h as f32,
+                sec_front.floor_h as f32,
+                ClipKind::Lower,
+            );
+        }
+    } else {
+        // ─ one-sided wall
+        push(
+            sd_front.middle,
+            sec_front.ceil_h as f32,
+            sec_front.floor_h as f32,
+            ClipKind::Solid,
+        );
+    }
+}
+
+/*────────────────── vertical-pegging (vanilla Doom) ──────────────────*/
+
+fn texturemid(
+    kind: ClipKind,
+    flags: LinedefFlags,
+    ceil_h: f32,
+    floor_h: f32,
+    eye_z: f32,
+    y_off: f32,
+) -> f32 {
+    match kind {
+        // Mid texture: peg to ceiling unless LOWER_UNPEGGED
+        ClipKind::Solid => {
+            if flags.contains(LinedefFlags::LOWER_UNPEGGED) {
+                (floor_h - eye_z) + y_off
+            } else {
+                (ceil_h - eye_z) + y_off
+            }
+        }
+        // Upper portal: peg to ceiling unless UPPER_UNPEGGED
+        ClipKind::Upper => {
+            if flags.contains(LinedefFlags::UPPER_UNPEGGED) {
+                (floor_h - eye_z) + y_off
+            } else {
+                (ceil_h - eye_z) + y_off
+            }
+        }
+        // Lower portal: peg to floor unless UPPER_UNPEGGED
+        ClipKind::Lower => {
+            if flags.contains(LinedefFlags::UPPER_UNPEGGED) {
+                (ceil_h - eye_z) + y_off
+            } else {
+                (floor_h - eye_z) + y_off
+            }
+        }
+    }
+}
+
+/*──────────────────── floor height under the player ──────────────────*/
+
+/// Find which subsector the player stands in and return its sector’s floor Z.
+fn floor_height_under_player(level: &Level, pos: Vec2) -> f32 {
+    let ss_idx = find_subsector(level, pos);
+    let ss = &level.subsectors[ss_idx];
+    let seg = &level.segs[ss.first_seg as usize];
+    let ld = &level.linedefs[seg.linedef as usize];
+    let sd_idx = if seg.dir == 0 {
+        ld.right_sidedef
+    } else {
+        ld.left_sidedef
+    }
+    .expect("subsector seg must have a sidedef");
+    let sector = &level.sectors[level.sidedefs[sd_idx as usize].sector as usize];
+    sector.floor_h as f32
+}
+
+fn find_subsector(level: &Level, node_idx: Vec2) -> usize {
+    // BSP walk until we hit a subsector leaf
+    let mut idx = level.bsp_root() as u16;
+    loop {
+        if idx & SUBSECTOR_BIT != 0 {
+            return (idx & CHILD_MASK) as usize;
+        }
+        let node = &level.nodes[idx as usize];
+        let side = node.point_side(node_idx) as usize;
+        idx = node.child[side];
+    }
+}
+
+/*───────────────────────────────────────────────────────────────────────*/
 /*                               Tests                                   */
-/*=======================================================================*/
+/*───────────────────────────────────────────────────────────────────────*/
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
         wad::{Wad, loader},
-        world::texture::TextureBank,
+        world::texture::{NO_TEXTURE, TextureBank},
     };
     use std::path::PathBuf;
 
+    /// Helper – locate DOOM.WAD inside the project tree.
     fn doom_wad() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("assets")
             .join("doom.wad")
     }
 
+    /// Build calls for E1M1 and make sure we get *something* back.
     #[test]
-    fn pipeline_produces_some_calls() {
-        let wad = Wad::from_file(doom_wad()).unwrap();
+    fn pipeline_produces_non_empty_call_list() {
+        let wad = Wad::from_file(doom_wad()).expect("cannot read WAD");
         let mut bank = TextureBank::default_with_checker();
-        let lvl = loader::load_level(&wad, wad.level_indices()[0], &mut bank).unwrap();
+        let level = loader::load_level(&wad, wad.level_indices()[0], &mut bank).unwrap();
 
-        // Spawn camera at thing type-1 (single-player start)
-        let start = lvl
+        // Player start (thing type-1)
+        let start = level
             .things
             .iter()
             .find(|t| t.type_id == 1)
@@ -318,20 +388,134 @@ mod tests {
 
         let cam = Camera::new(glam::Vec3::new(start.x, start.y, 41.0), 0.0, 1.57);
 
+        let calls = build_drawcalls(&level, &cam, 640, 400);
         assert!(
-            !build_drawcalls(&lvl, &cam, 640, 400).is_empty(),
-            "no walls were emitted"
+            !calls.is_empty(),
+            "pipeline returned zero DrawCalls for E1M1"
         );
     }
 
+    /// Every column must satisfy *top <= bottom* on both ends.
     #[test]
-    fn y_top_is_above_y_bot() {
+    fn y_top_is_above_y_bottom_everywhere() {
         let wad = Wad::from_file(doom_wad()).unwrap();
         let mut bank = TextureBank::default_with_checker();
-        let lvl = loader::load_level(&wad, wad.level_indices()[0], &mut bank).unwrap();
+        let level = loader::load_level(&wad, wad.level_indices()[0], &mut bank).unwrap();
         let cam = Camera::new(glam::Vec3::new(0.0, 0.0, 41.0), 0.0, 1.57);
-        for dc in build_drawcalls(&lvl, &cam, 640, 400) {
-            assert!(dc.y_top0 <= dc.y_bot0 && dc.y_top1 <= dc.y_bot1);
+
+        for dc in build_drawcalls(&level, &cam, 640, 400) {
+            assert!(
+                dc.y_top0 <= dc.y_bot0 && dc.y_top1 <= dc.y_bot1,
+                "y_top > y_bot for drawcall {:?}",
+                dc
+            );
         }
+    }
+
+    /// `back_facing` should cull simple test segs correctly.
+    ///
+    /// We construct a *minimal* two-vertex level in memory so the test does not
+    /// depend on external WAD data.
+    #[test]
+    fn back_facing_culls_behind_wall() {
+        use crate::world::geometry::{
+            Linedef, Node, Sector, Seg, Sidedef, Subsector, Thing, Vertex,
+        };
+
+        /// Return a Level that contains one square “room” (two vertices, one seg,
+        /// one subsector, one sector, one BSP node).  Enough for back-face and
+        /// projection tests.
+        pub fn dummy_level() -> Level {
+            // ─── vertices ───
+            let vertices = vec![
+                Vertex {
+                    pos: vec2(0.0, 0.0),
+                },
+                Vertex {
+                    pos: vec2(128.0, 0.0),
+                },
+            ];
+
+            // ─── linedef & sidedef pair ───
+            let linedefs = vec![Linedef {
+                v1: 0,
+                v2: 1,
+                flags: LinedefFlags::empty(),
+                right_sidedef: Some(0),
+                left_sidedef: None,
+                special: 0,
+                tag: 0,
+            }];
+
+            let sidedefs = vec![Sidedef {
+                x_off: 0,
+                y_off: 0,
+                upper: NO_TEXTURE,
+                lower: NO_TEXTURE,
+                middle: NO_TEXTURE,
+                sector: 0,
+            }];
+
+            // ─── sector ───
+            let sectors = vec![Sector {
+                floor_h: 0,
+                ceil_h: 128,
+                floor_tex: NO_TEXTURE,
+                ceil_tex: NO_TEXTURE,
+                light: 0,
+                special: 0,
+                tag: 0,
+            }];
+
+            // ─── seg + subsector ───
+            let segs = vec![Seg {
+                v1: 0,
+                v2: 1,
+                linedef: 0,
+                dir: 0,
+                offset: 0,
+            }];
+
+            let subsectors = vec![Subsector {
+                first_seg: 0,
+                seg_count: 1,
+            }];
+
+            // ─── one BSP node whose children are both the sole subsector ───
+            let nodes = vec![Node {
+                x: 0,
+                y: 0,
+                dx: 0,
+                dy: 0,
+                bbox: [[0; 4]; 2],
+                child: [SUBSECTOR_BIT | 0, SUBSECTOR_BIT | 0], // both sides point to subsector 0
+            }];
+
+            // ─── build the Level ───
+            Level {
+                name: "dummy".into(),
+                things: Vec::<Thing>::new(),
+                linedefs,
+                sidedefs,
+                vertices,
+                segs,
+                subsectors,
+                nodes,
+                sectors,
+                sector_of_subsector: vec![0],
+            }
+        }
+
+        // Stub BSP: single subsector containing that seg
+        let mut level = dummy_level();
+
+        let camera = Camera::new(glam::Vec3::new(64.0, -64.0, 41.0), 0.0, 0.0);
+
+        // Seg faces +Y, camera is −Y looking +Y → front-facing = should *not* be culled.
+        assert!(!back_facing(0, &level, &camera));
+
+        // Flip seg direction so its normal faces −Y: now it *is* back-facing.
+        level.segs[0].dir = 1;
+        assert!(back_facing(0, &level, &camera));
     }
 }
