@@ -21,48 +21,44 @@ use crate::{
 
 /// Doom-style column renderer.
 pub struct Software {
-    /* frame-buffer info – stored across calls so `draw_wall` stays safe */
-    fb_ptr: *mut Rgba,
-    fb_len: usize,
-    width: usize,
-    height: usize,
-
-    /* per-column clip bands, recycled every frame */
+    scratch: Vec<Rgba>,
+    /* clip bands survive across columns */
     ceil_clip: Vec<i16>,
     floor_clip: Vec<i16>,
+    width: usize,
+    height: usize,
 }
 
 impl Default for Software {
     fn default() -> Self {
         Self {
-            fb_ptr: core::ptr::null_mut(),
-            fb_len: 0,
-            width: 0,
-            height: 0,
+            scratch: Vec::new(),
             ceil_clip: Vec::new(),
             floor_clip: Vec::new(),
+            width: 0,
+            height: 0,
         }
     }
 }
 
 /*──────────────────────── Renderer trait impl ────────────────────────*/
 impl Renderer for Software {
-    fn begin_frame(&mut self, target: Option<&mut [Rgba]>, w: usize, h: usize) {
-        /* grab the raw buffer pointer (kept for the whole frame) */
-        let buf = target.expect("Software backend needs a CPU frame-buffer");
-        self.fb_ptr = buf.as_mut_ptr();
-        self.fb_len = buf.len();
-        self.width = w;
-        self.height = h;
+    fn begin_frame(&mut self, w: usize, h: usize) {
+        // (re)allocate if resolution changed
+        if w != self.width || h != self.height {
+            self.width = w;
+            self.height = h;
+            self.scratch.resize(w * h, 0);
+            self.ceil_clip.resize(w, 0);
+            self.floor_clip.resize(w, h as i16 - 1);
+        }
 
         /* dark-grey clear */
-        buf.fill(0xFF_202020);
+        self.scratch.fill(0xFF_202020);
 
         /* reset per-column clip ranges */
-        self.ceil_clip.clear();
-        self.ceil_clip.resize(w, 0);
-        self.floor_clip.clear();
-        self.floor_clip.resize(w, h as i16 - 1);
+        self.ceil_clip.fill(0);
+        self.floor_clip.fill(self.height as i16 - 1);
     }
 
     fn draw_wall(&mut self, dc: &DrawCall, bank: &TextureBank) {
@@ -86,7 +82,11 @@ impl Renderer for Software {
         }
     }
 
-    fn end_frame(&mut self) { /* nothing to flush in pure software */
+    fn end_frame(&mut self, target: Option<&mut [Rgba]>) {
+        if let Some(dst) = target {
+            debug_assert_eq!(dst.len(), self.scratch.len());
+            dst.copy_from_slice(&self.scratch); // one fast memcpy
+        }
     }
 }
 
@@ -170,12 +170,9 @@ impl Software {
 
         let u_tex = ((cur.uoz / cur.inv_z) as i32).rem_euclid(tex.w as i32) as usize;
 
-        /* unsafe is local: rebuild the fb slice once per column */
-        let fb: &mut [u32] = unsafe { core::slice::from_raw_parts_mut(self.fb_ptr, self.fb_len) };
-
         for y in y0..=y1 {
             let v_tex = (v_mu as i32).rem_euclid(tex.h as i32) as usize;
-            fb[y as usize * self.width + col] = tex.pixels[v_tex * tex.w + u_tex];
+            self.scratch[y as usize * self.width + col] = tex.pixels[v_tex * tex.w + u_tex];
             v_mu += step_v;
         }
 

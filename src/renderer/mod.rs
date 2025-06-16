@@ -54,35 +54,35 @@ pub struct DrawCall {
 
 /// Backend-agnostic rendering interface.
 pub trait Renderer {
-    /// Called once at the beginning of every video frame.
-    ///
-    /// * `target` – for software backend this is `Some(&mut [u32])`.
-    ///              GPU back-ends pass `None` and use their own FBO.
-    fn begin_frame(&mut self, target: Option<&mut [Rgba]>, width: usize, height: usize);
+    /// Allocate / reuse internal scratch buffer and reset state.
+    fn begin_frame(&mut self, width: usize, height: usize);
 
-    /// Paint one textured wall slice batch.
+    /// Rasterise one wall-span into the **internal** buffer.
     fn draw_wall(&mut self, call: &DrawCall, textures: &TextureBank);
 
-    /// Finish the frame (flush, swap-buffers, …).
-    fn end_frame(&mut self);
+    /// Finish the frame.
+    ///
+    /// * **software back-ends** expect `target = Some(fb)` and must copy the
+    ///   scratch buffer into that slice.
+    /// * **GPU back-ends** receive `None` and simply present / swap buffers.
+    fn end_frame(&mut self, target: Option<&mut [Rgba]>);
 }
 
 /// Convenience blanket-impl with a one-liner `draw_frame` adaptor.
 pub trait RendererExt: Renderer {
-    /// Executes a whole frame from a prepared list of draw calls.
     fn draw_frame(
         &mut self,
-        fb: &mut [Rgba],
-        width: usize,
-        height: usize,
+        target: &mut [Rgba],
+        w: usize,
+        h: usize,
         calls: &[DrawCall],
-        textures: &TextureBank,
+        bank: &TextureBank,
     ) {
-        self.begin_frame(Some(fb), width, height);
-        for c in calls {
-            self.draw_wall(c, textures);
+        self.begin_frame(w, h);
+        for dc in calls {
+            self.draw_wall(dc, bank);
         }
-        self.end_frame();
+        self.end_frame(Some(target));
     }
 }
 impl<T: Renderer + ?Sized> RendererExt for T {}
@@ -91,9 +91,9 @@ impl<T: Renderer + ?Sized> RendererExt for T {}
 #[derive(Default)]
 pub struct Dummy;
 impl Renderer for Dummy {
-    fn begin_frame(&mut self, _tgt: Option<&mut [Rgba]>, _w: usize, _h: usize) {}
+    fn begin_frame(&mut self, _w: usize, _h: usize) {}
     fn draw_wall(&mut self, _c: &DrawCall, _tex: &TextureBank) {}
-    fn end_frame(&mut self) {}
+    fn end_frame(&mut self, _tgt: Option<&mut [Rgba]>) {}
 }
 
 pub mod software;
