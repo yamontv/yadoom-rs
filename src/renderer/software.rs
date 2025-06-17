@@ -56,6 +56,12 @@ impl Renderer for Software {
         /* reset per-column clip ranges */
         self.ceil_clip.fill(0);
         self.floor_clip.fill(self.height as i32 - 1);
+
+        // called once per frame, before you start pushing DrawCalls
+        for x in 0..self.width {
+            self.ceil_clip[x] = -1; // “no lower limit” for the ceiling
+            self.floor_clip[x] = self.height as i32; // “no upper limit” for the floor
+        }
     }
 
     fn draw_wall(&mut self, wall_span: &WallSpan, bank: &TextureBank) {
@@ -96,27 +102,39 @@ impl Renderer for Software {
             Err(_) => return, // out-of-range id → skip this span
         };
 
-        // Constant-per-span increments --------------------------------------
-        let span_px = (p.x_end - p.x_start) as f32;
+        /* ── screen bounds ─────────────────────────────────────────── */
+        if p.y < 0 || p.y >= self.height as i32 {
+            return;
+        }
+
+        let xs = p.x_start.max(0);
+        let xe = p.x_end.min(self.width as i32 - 1);
+        if xs > xe {
+            return;
+        }
+
+        // convert once
+        let start = xs as usize;
+        let end = xe as usize; // inclusive in maths, exclusive in loop
+
+        /* ── per-span increments unchanged ─────────────────────────── */
+
+        let span_px = (xe - xs) as f32 + 1.0; // +1 because we include xe
         let duoz = (p.u1_over_z - p.u0_over_z) / span_px;
         let dvoz = (p.v1_over_z - p.v0_over_z) / span_px;
         let dinvz = (p.inv_z1 - p.inv_z0) / span_px;
 
-        // Running values ----------------------------------------------------
-        let mut uoz = p.u0_over_z;
-        let mut voz = p.v0_over_z;
-        let mut invz = p.inv_z0;
-
-        // Frame-buffer row slice --------------------------------------------
+        /* ── framebuffer slice ─────────────────────────────────────── */
         let y = p.y as usize;
         let row_ofs = y * self.width;
         let fb = &mut self.scratch[row_ofs..row_ofs + self.width];
 
-        // Per-pixel loop -----------------------------------------------------
-        for x in p.x_start..=p.x_end {
-            let col = x as usize;
+        /* ── inner loop:  half-open range  ─────────────────────────── */
+        let mut uoz = p.u0_over_z + duoz * ((xs - p.x_start) as f32);
+        let mut voz = p.v0_over_z + dvoz * ((xs - p.x_start) as f32);
+        let mut invz = p.inv_z0 + dinvz * ((xs - p.x_start) as f32);
 
-            // honour clip bands so flats never over-draw a solid wall
+        for col in start..=end {
             if p.is_floor && y < self.floor_clip[col] as usize {
                 uoz += duoz;
                 voz += dvoz;
@@ -130,7 +148,6 @@ impl Renderer for Software {
                 continue;
             }
 
-            // perspective-correct UV
             let z = 1.0 / invz;
             let u_i = ((uoz * z) as i32).rem_euclid(tex.w as i32) as usize;
             let v_i = ((voz * z) as i32).rem_euclid(tex.h as i32) as usize;
@@ -242,11 +259,17 @@ impl Software {
         /* update clip bands so farther geometry is culled */
         match wall_span.kind {
             ClipKind::Solid => {
-                self.ceil_clip[col] = (y1 as i32).saturating_add(1);
-                self.floor_clip[col] = (y0 as i32).saturating_sub(1);
+                self.ceil_clip[col] = (y0 as i32).saturating_sub(1);
+                self.floor_clip[col] = (y1 as i32).saturating_add(1);
             }
-            ClipKind::Upper => self.ceil_clip[col] = (y1 as i32).saturating_add(1),
-            ClipKind::Lower => self.floor_clip[col] = (y0 as i32).saturating_sub(1),
+            ClipKind::Upper => {
+                // hide ceiling rows that lie *below* the bottom of the upper-texture
+                self.ceil_clip[col] = (y1 as i32).saturating_sub(1);
+            }
+            ClipKind::Lower => {
+                // hide floor rows that lie *above* the top of the lower-texture
+                self.floor_clip[col] = (y0 as i32).saturating_add(1);
+            }
         }
     }
 }
