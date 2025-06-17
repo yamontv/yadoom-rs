@@ -11,6 +11,8 @@
 
 use glam::{Vec2, vec2};
 
+use std::collections::{BTreeMap, HashMap};
+
 use crate::{
     renderer::{ClipKind, DrawCall, PlaneSpan, WallSpan},
     world::{
@@ -53,9 +55,186 @@ pub fn build_drawcalls(level: &Level, cam: &Camera, w: usize, h: usize) -> Vec<D
 }
 
 /*──────────────────────────── Visplanes ──────────────────────────*/
-
 fn build_visplanes(lvl: &Level, cam: &Camera, view: &ViewParams, out: &mut Vec<DrawCall>) {
-    // TODO
+    /// Key that uniquely identifies one vis-plane
+    #[derive(Hash, Eq, PartialEq, Clone)]
+    struct PlaneKey {
+        height: i16,
+        tex_id: TextureId,
+        is_floor: bool,
+    }
+
+    /// Row → list of (x_start, x_end) segments; kept *sorted & merged*
+    type RowSpans = BTreeMap<i32, Vec<(i32, i32)>>;
+
+    // height/tex pair  ─┐
+    let mut planes: HashMap<PlaneKey, RowSpans> = HashMap::new();
+
+    /*------------------------------------------------------------*/
+    /* 1. second BSP walk – gather all visible subsectors         */
+    /*------------------------------------------------------------*/
+    fn walk_bsp_vis(
+        child: u16,
+        lvl: &Level,
+        cam: &Camera,
+        view: &ViewParams,
+        planes: &mut HashMap<PlaneKey, RowSpans>,
+    ) {
+        if child & SUBSECTOR_BIT != 0 {
+            gather_subsector(child & CHILD_MASK, lvl, cam, view, planes);
+        } else {
+            let node = &lvl.nodes[child as usize];
+            let front = node.point_side(cam.pos().truncate()) as usize;
+            let back = front ^ 1;
+            walk_bsp_vis(node.child[front], lvl, cam, view, planes); // near
+            walk_bsp_vis(node.child[back], lvl, cam, view, planes); // far
+        }
+    }
+
+    /*------------------------------------------------------------*/
+    /* gather one subsector → vis-plane spans                     */
+    /*------------------------------------------------------------*/
+    fn gather_subsector(
+        ss_idx: u16,
+        lvl: &Level,
+        cam: &Camera,
+        view: &ViewParams,
+        planes: &mut HashMap<PlaneKey, RowSpans>,
+    ) {
+        /* 1️⃣  project every edge to find the screen-space X band */
+        let mut x_min = view.view_w as i32;
+        let mut x_max = -1;
+        for seg in lvl.segs_of_subsector(ss_idx) {
+            if let Some(edge) = project_seg(seg, lvl, cam, view) {
+                x_min = x_min.min(edge.x_l);
+                x_max = x_max.max(edge.x_r);
+            }
+        }
+        if x_max < x_min {
+            return; // subsector is completely off-screen
+        }
+
+        let sector_idx = lvl.sector_of_subsector[ss_idx as usize];
+        let sector = &lvl.sectors[sector_idx as usize];
+        let eye_z = view.eye_floor_z + cam.pos().z;
+        let h = (view.half_h * 2.0) as i32;
+
+        /* helper – insert one horizontal run into the hash-table */
+        let mut push_span =
+            |plane_z: f32, tex: TextureId, is_floor: bool, y_from: i32, y_to: i32| {
+                let key = PlaneKey {
+                    height: plane_z as i16,
+                    tex_id: tex,
+                    is_floor,
+                };
+                let row_map = planes.entry(key).or_default();
+
+                for y in y_from..=y_to {
+                    // merge with existing spans on that row
+                    let spans = row_map.entry(y).or_default();
+                    if let Some(last) = spans.last_mut() {
+                        if last.1 + 1 >= x_min {
+                            // contiguous / overlaps
+                            last.1 = last.1.max(x_max);
+                            continue;
+                        }
+                    }
+                    spans.push((x_min, x_max));
+                }
+            };
+
+        /* 2️⃣  back-sector floor & ceiling                            */
+        push_span(
+            sector.floor_h as f32,
+            sector.floor_tex,
+            true, // ⬇ floor
+            view.half_h as i32 + 1,
+            h - 1,
+        );
+
+        push_span(
+            sector.ceil_h as f32,
+            sector.ceil_tex,
+            false, // ⬆ ceiling
+            0,
+            view.half_h as i32 - 1,
+        );
+    }
+
+    /* run the second pass */
+    walk_bsp_vis(lvl.bsp_root() as u16, lvl, cam, view, &mut planes);
+
+    /*------------------------------------------------------------*/
+    /* 2. flatten hash-table → PlaneSpan draw-calls               */
+    /*------------------------------------------------------------*/
+    let fwd = cam.forward();
+    let rgt = cam.right();
+    let eye_z = view.eye_floor_z + cam.pos().z;
+
+    /*------------------------------------------------------------*/
+    /* 2.  Flatten hash-table → sorted PlaneSpan draw-calls       */
+    /*------------------------------------------------------------*/
+    let eye_z = view.eye_floor_z + cam.pos().z;
+    let mut bucket = Vec::<(f32, PlaneSpan)>::new(); // (sort-key, span)
+
+    let fwd = cam.forward();
+    let rgt = cam.right();
+
+    for (key, rows) in planes {
+        let plane_z = key.height as f32;
+        let dz = plane_z - eye_z;
+
+        /* choose a key that puts the farthest plane first, nearest last    */
+        /* floors :  lower height  → larger |dz| → draw first               */
+        /* ceilings: higher height → larger |dz| → draw first               */
+        let sort_key = (plane_z - eye_z).abs();
+
+        for (y, spans) in rows {
+            let dy_px = view.half_h - y as f32;
+            if dy_px == 0.0 {
+                continue;
+            }
+
+            let depth = dz * view.focal / dy_px;
+            if depth <= cam.near() {
+                continue;
+            }
+            let inv_z = 1.0 / depth;
+
+            let to_world = |x_px: i32| {
+                let dx_px = x_px as f32 - view.half_w;
+                let lat = dx_px * depth / view.focal;
+                cam.pos().truncate() + fwd * depth - rgt * lat
+            };
+
+            for (x_start, x_end) in spans {
+                let world_l = to_world(x_start);
+                let world_r = to_world(x_end);
+
+                bucket.push((
+                    sort_key,
+                    PlaneSpan {
+                        tex_id: key.tex_id,
+                        u0_over_z: world_l.x * inv_z,
+                        v0_over_z: world_l.y * inv_z,
+                        u1_over_z: world_r.x * inv_z,
+                        v1_over_z: world_r.y * inv_z,
+                        inv_z0: inv_z,
+                        inv_z1: inv_z,
+                        y,
+                        x_start,
+                        x_end,
+                        is_floor: key.is_floor,
+                    },
+                ));
+            }
+        }
+    }
+
+    /* far → near so that nearer planes overwrite farther ones */
+    bucket.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+
+    out.extend(bucket.into_iter().map(|(_, span)| DrawCall::Plane(span)));
 }
 
 /*──────────────────────────── BSP traversal ──────────────────────────*/

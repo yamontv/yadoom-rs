@@ -81,37 +81,61 @@ impl Renderer for Software {
         }
     }
 
-    fn draw_plane(&mut self, pc: &PlaneSpan, bank: &TextureBank) {
-        let tex = bank.texture(pc.tex_id).unwrap();
-        let span = (pc.x_end - pc.x_start).max(1) as f32;
+    fn draw_plane(&mut self, p: &PlaneSpan, bank: &TextureBank) {
+        // Safety catches ----------------------------------------------------
+        if p.x_end <= p.x_start {
+            return;
+        }
+        if p.y < 0 || p.y >= self.height as i32 {
+            return;
+        }
 
-        /* 1×/span linear increments */
-        let duoz = (pc.u1_over_z - pc.u0_over_z) / span;
-        let dvoz = (pc.v1_over_z - pc.v0_over_z) / span;
-        let dinvz = (pc.inv_z1 - pc.inv_z0) / span;
+        // Texture -----------------------------------------------------------
+        let tex = match bank.texture(p.tex_id) {
+            Ok(t) => t,       // valid id → use the real texture
+            Err(_) => return, // out-of-range id → skip this span
+        };
 
-        /* left edge cursor */
-        let mut uoz = pc.u0_over_z;
-        let mut voz = pc.v0_over_z;
-        let mut invz = pc.inv_z0;
+        // Constant-per-span increments --------------------------------------
+        let span_px = (p.x_end - p.x_start) as f32;
+        let duoz = (p.u1_over_z - p.u0_over_z) / span_px;
+        let dvoz = (p.v1_over_z - p.v0_over_z) / span_px;
+        let dinvz = (p.inv_z1 - p.inv_z0) / span_px;
 
-        let y = pc.y as usize;
-        let fb = &mut self.scratch[y * self.width..(y + 1) * self.width];
-        for x in pc.x_start..=pc.x_end {
+        // Running values ----------------------------------------------------
+        let mut uoz = p.u0_over_z;
+        let mut voz = p.v0_over_z;
+        let mut invz = p.inv_z0;
+
+        // Frame-buffer row slice --------------------------------------------
+        let y = p.y as usize;
+        let row_ofs = y * self.width;
+        let fb = &mut self.scratch[row_ofs..row_ofs + self.width];
+
+        // Per-pixel loop -----------------------------------------------------
+        for x in p.x_start..=p.x_end {
             let col = x as usize;
-            /* honour the clip bands you already track */
-            if pc.is_floor && y < self.floor_clip[col] as usize {
+
+            // honour clip bands so flats never over-draw a solid wall
+            if p.is_floor && y < self.floor_clip[col] as usize {
+                uoz += duoz;
+                voz += dvoz;
+                invz += dinvz;
                 continue;
             }
-            if !pc.is_floor && y > self.ceil_clip[col] as usize {
+            if !p.is_floor && y > self.ceil_clip[col] as usize {
+                uoz += duoz;
+                voz += dvoz;
+                invz += dinvz;
                 continue;
             }
 
-            /* perspective-correct UV */
-            let inv = 1.0 / invz;
-            let u = ((uoz * inv) as i32).rem_euclid(tex.w as i32) as usize;
-            let v = ((voz * inv) as i32).rem_euclid(tex.h as i32) as usize;
-            fb[col] = tex.pixels[v * tex.w + u];
+            // perspective-correct UV
+            let z = 1.0 / invz;
+            let u_i = ((uoz * z) as i32).rem_euclid(tex.w as i32) as usize;
+            let v_i = ((voz * z) as i32).rem_euclid(tex.h as i32) as usize;
+
+            fb[col] = tex.pixels[v_i * tex.w + u_i];
 
             uoz += duoz;
             voz += dvoz;
