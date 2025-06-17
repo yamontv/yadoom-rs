@@ -148,6 +148,14 @@ impl Renderer for Software {
                 continue;
             }
 
+            if !invz.is_finite() || invz.abs() < 1.0e-6 {
+                /* ray is parallel to the plane or numerical junk – skip pixel        */
+                uoz += duoz;
+                voz += dvoz;
+                invz += dinvz;
+                continue;
+            }
+
             let z = 1.0 / invz;
             let u_i = ((uoz * z) as i32).rem_euclid(tex.w as i32) as usize;
             let v_i = ((voz * z) as i32).rem_euclid(tex.h as i32) as usize;
@@ -263,11 +271,9 @@ impl Software {
                 self.floor_clip[col] = (y1 as i32).saturating_add(1);
             }
             ClipKind::Upper => {
-                // hide ceiling rows that lie *below* the bottom of the upper-texture
                 self.ceil_clip[col] = (y1 as i32).saturating_sub(1);
             }
             ClipKind::Lower => {
-                // hide floor rows that lie *above* the top of the lower-texture
                 self.floor_clip[col] = (y0 as i32).saturating_add(1);
             }
         }

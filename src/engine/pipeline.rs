@@ -70,6 +70,8 @@ fn build_visplanes(lvl: &Level, cam: &Camera, view: &ViewParams, out: &mut Vec<D
     // height/tex pair  ─┐
     let mut planes: HashMap<PlaneKey, RowSpans> = HashMap::new();
 
+    let player_ss = find_subsector(lvl, cam.pos().truncate()) as u16;
+
     /*------------------------------------------------------------*/
     /* 1. second BSP walk – gather all visible subsectors         */
     /*------------------------------------------------------------*/
@@ -79,15 +81,16 @@ fn build_visplanes(lvl: &Level, cam: &Camera, view: &ViewParams, out: &mut Vec<D
         cam: &Camera,
         view: &ViewParams,
         planes: &mut HashMap<PlaneKey, RowSpans>,
+        player_ss: u16,
     ) {
         if child & SUBSECTOR_BIT != 0 {
-            gather_subsector(child & CHILD_MASK, lvl, cam, view, planes);
+            gather_subsector(child & CHILD_MASK, lvl, cam, view, planes, player_ss);
         } else {
             let node = &lvl.nodes[child as usize];
             let front = node.point_side(cam.pos().truncate()) as usize;
             let back = front ^ 1;
-            walk_bsp_vis(node.child[front], lvl, cam, view, planes); // near
-            walk_bsp_vis(node.child[back], lvl, cam, view, planes); // far
+            walk_bsp_vis(node.child[front], lvl, cam, view, planes, player_ss); // near
+            walk_bsp_vis(node.child[back], lvl, cam, view, planes, player_ss); // far
         }
     }
 
@@ -100,6 +103,7 @@ fn build_visplanes(lvl: &Level, cam: &Camera, view: &ViewParams, out: &mut Vec<D
         cam: &Camera,
         view: &ViewParams,
         planes: &mut HashMap<PlaneKey, RowSpans>,
+        player_ss: u16,
     ) {
         /* 1️⃣  project every edge to find the screen-space X band */
         let mut x_min = view.view_w as i32;
@@ -110,8 +114,15 @@ fn build_visplanes(lvl: &Level, cam: &Camera, view: &ViewParams, out: &mut Vec<D
                 x_max = x_max.max(edge.x_r);
             }
         }
+        x_min = x_min.clamp(0, view.view_w as i32 - 1);
+        x_max = x_max.clamp(0, view.view_w as i32 - 1);
         if x_max < x_min {
             return; // subsector is completely off-screen
+        }
+
+        if ss_idx == player_ss {
+            x_min = 0;
+            x_max = view.view_w as i32 - 1;
         }
 
         let sector_idx = lvl.sector_of_subsector[ss_idx as usize];
@@ -144,25 +155,35 @@ fn build_visplanes(lvl: &Level, cam: &Camera, view: &ViewParams, out: &mut Vec<D
             };
 
         /* 2️⃣  back-sector floor & ceiling                            */
+        let h = (view.half_h * 2.0) as i32;
+        let clamp_row = |y: i32| y.clamp(0, h - 1);
+
         push_span(
             sector.floor_h as f32,
             sector.floor_tex,
             true, // ⬇ floor
-            view.half_h as i32 + 1,
-            h - 1,
+            clamp_row(view.half_h as i32 + 1),
+            clamp_row(h - 1),
         );
 
         push_span(
             sector.ceil_h as f32,
             sector.ceil_tex,
             false, // ⬆ ceiling
-            0,
-            view.half_h as i32 - 1,
+            clamp_row(0),
+            clamp_row(view.half_h as i32 - 1),
         );
     }
 
     /* run the second pass */
-    walk_bsp_vis(lvl.bsp_root() as u16, lvl, cam, view, &mut planes);
+    walk_bsp_vis(
+        lvl.bsp_root() as u16,
+        lvl,
+        cam,
+        view,
+        &mut planes,
+        player_ss,
+    );
 
     /*------------------------------------------------------------*/
     /* 2. flatten hash-table → PlaneSpan draw-calls               */
