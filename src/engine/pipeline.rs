@@ -110,7 +110,6 @@ struct Edge {
     invz_r: f32,
     uoz_l: f32,
     uoz_r: f32,
-    frac_l: f32,
     seg_idx: u16,
 }
 
@@ -121,6 +120,8 @@ fn project_seg(seg_idx: u16, lvl: &Level, cam: &Camera, view: &ViewParams) -> Op
     let v2 = lvl.vertices[seg.v2 as usize].pos;
     let mut p1 = cam.to_cam(v1);
     let mut p2 = cam.to_cam(v2);
+
+    debug_assert!(p1.y != 0.0 && p2.y != 0.0);
 
     // Near-plane clip (track tex-coord t1,t2)
     let mut t1 = 0.0;
@@ -167,7 +168,6 @@ fn project_seg(seg_idx: u16, lvl: &Level, cam: &Camera, view: &ViewParams) -> Op
         invz_r: invz_p1 + (invz_p2 - invz_p1) * frac_r,
         uoz_l: uoz_p1 + (uoz_p2 - uoz_p1) * frac_l,
         uoz_r: uoz_p1 + (uoz_p2 - uoz_p1) * frac_r,
-        frac_l,
         seg_idx: seg_idx as u16,
     })
 }

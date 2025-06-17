@@ -19,8 +19,8 @@ use crate::{
 pub struct Software {
     scratch: Vec<Rgba>,
     /* clip bands survive across columns */
-    ceil_clip: Vec<i16>,
-    floor_clip: Vec<i16>,
+    ceil_clip: Vec<i32>,
+    floor_clip: Vec<i32>,
     width: usize,
     height: usize,
 }
@@ -47,7 +47,7 @@ impl Renderer for Software {
             self.height = h;
             self.scratch.resize(w * h, 0);
             self.ceil_clip.resize(w, 0);
-            self.floor_clip.resize(w, h as i16 - 1);
+            self.floor_clip.resize(w, h as i32 - 1);
         }
 
         /* dark-grey clear */
@@ -55,7 +55,7 @@ impl Renderer for Software {
 
         /* reset per-column clip ranges */
         self.ceil_clip.fill(0);
-        self.floor_clip.fill(self.height as i16 - 1);
+        self.floor_clip.fill(self.height as i32 - 1);
     }
 
     fn draw_wall(&mut self, dc: &DrawCall, bank: &TextureBank) {
@@ -127,6 +127,8 @@ impl ColumnCursor {
             y_bot: dc.y_bot0,
         }
     }
+
+    #[inline(always)]
     fn advance(&mut self, s: &ColumnStep) {
         self.uoz += s.duoz;
         self.inv_z += s.dinvz;
@@ -178,11 +180,11 @@ impl Software {
         /* update clip bands so farther geometry is culled */
         match dc.kind {
             ClipKind::Solid => {
-                self.ceil_clip[col] = (y1 as i16).saturating_add(1);
-                self.floor_clip[col] = (y0 as i16).saturating_sub(1);
+                self.ceil_clip[col] = (y1 as i32).saturating_add(1);
+                self.floor_clip[col] = (y0 as i32).saturating_sub(1);
             }
-            ClipKind::Upper => self.ceil_clip[col] = (y1 as i16).saturating_add(1),
-            ClipKind::Lower => self.floor_clip[col] = (y0 as i16).saturating_sub(1),
+            ClipKind::Upper => self.ceil_clip[col] = (y1 as i32).saturating_add(1),
+            ClipKind::Lower => self.floor_clip[col] = (y0 as i32).saturating_sub(1),
         }
     }
 }
