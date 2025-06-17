@@ -252,8 +252,9 @@ fn build_visplanes(lvl: &Level, cam: &Camera, view: &ViewParams, out: &mut Vec<D
         }
     }
 
-    /* far → near so that nearer planes overwrite farther ones */
-    bucket.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    /* draw FAR planes first so the NEAREST plane is written last
+    ( = what you finally see on screen )                                     */
+    bucket.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
 
     out.extend(bucket.into_iter().map(|(_, span)| DrawCall::Plane(span)));
 }
