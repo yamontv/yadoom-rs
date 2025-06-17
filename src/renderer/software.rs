@@ -82,41 +82,7 @@ impl Renderer for Software {
     }
 
     fn draw_plane(&mut self, pc: &PlaneSpan, bank: &TextureBank) {
-        let tex = bank.texture(pc.tex_id).unwrap();
-        let span = (pc.x_end - pc.x_start).max(1) as f32;
-
-        /* 1×/span linear increments */
-        let duoz = (pc.u1_over_z - pc.u0_over_z) / span;
-        let dvoz = (pc.v1_over_z - pc.v0_over_z) / span;
-        let dinvz = (pc.inv_z1 - pc.inv_z0) / span;
-
-        /* left edge cursor */
-        let mut uoz = pc.u0_over_z;
-        let mut voz = pc.v0_over_z;
-        let mut invz = pc.inv_z0;
-
-        let y = pc.y as usize;
-        let fb = &mut self.scratch[y * self.width..(y + 1) * self.width];
-        for x in pc.x_start..=pc.x_end {
-            let col = x as usize;
-            /* honour the clip bands you already track */
-            if pc.is_floor && y < self.floor_clip[col] as usize {
-                continue;
-            }
-            if !pc.is_floor && y > self.ceil_clip[col] as usize {
-                continue;
-            }
-
-            /* perspective-correct UV */
-            let inv = 1.0 / invz;
-            let u = ((uoz * inv) as i32).rem_euclid(tex.w as i32) as usize;
-            let v = ((voz * inv) as i32).rem_euclid(tex.h as i32) as usize;
-            fb[col] = tex.pixels[v * tex.w + u];
-
-            uoz += duoz;
-            voz += dvoz;
-            invz += dinvz;
-        }
+        // TODO
     }
 
     fn end_frame<F>(&mut self, submit: F)

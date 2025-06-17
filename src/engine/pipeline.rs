@@ -47,22 +47,59 @@ pub fn build_drawcalls(level: &Level, cam: &Camera, w: usize, h: usize) -> Vec<D
     };
 
     let mut calls = Vec::<DrawCall>::with_capacity(3_072);
-    walk_bsp(level.bsp_root() as u16, level, cam, &view, &mut calls);
+
+    /* column-wise clip state (shared for the whole frame) */
+    let mut ceil_clip = vec![0_i32; w];
+    let mut floor_clip = vec![h as i32 - 1; w];
+
+    walk_bsp(
+        level.bsp_root() as u16,
+        level,
+        cam,
+        &view,
+        &mut ceil_clip,
+        &mut floor_clip,
+        &mut calls,
+    );
     calls
 }
 
 /*──────────────────────────── BSP traversal ──────────────────────────*/
 
-fn walk_bsp(child: u16, lvl: &Level, cam: &Camera, view: &ViewParams, out: &mut Vec<DrawCall>) {
+fn walk_bsp(
+    child: u16,
+    lvl: &Level,
+    cam: &Camera,
+    view: &ViewParams,
+    ceil_clip: &mut [i32],
+    floor_clip: &mut [i32],
+    out: &mut Vec<DrawCall>,
+) {
     if child & SUBSECTOR_BIT != 0 {
-        draw_subsector(child & CHILD_MASK, lvl, cam, view, out);
+        draw_subsector(
+            child & CHILD_MASK,
+            lvl,
+            cam,
+            view,
+            ceil_clip,
+            floor_clip,
+            out,
+        );
     } else {
         let node = &lvl.nodes[child as usize];
         let front = node.point_side(cam.pos().truncate()) as usize;
         let back = front ^ 1;
 
-        walk_bsp(node.child[front], lvl, cam, view, out); // near
-        walk_bsp(node.child[back], lvl, cam, view, out); // far
+        walk_bsp(
+            node.child[front],
+            lvl,
+            cam,
+            view,
+            ceil_clip,
+            floor_clip,
+            out,
+        ); // near
+        walk_bsp(node.child[back], lvl, cam, view, ceil_clip, floor_clip, out); // far
     }
 }
 
@@ -73,6 +110,8 @@ fn draw_subsector(
     lvl: &Level,
     cam: &Camera,
     view: &ViewParams,
+    ceil_clip: &mut [i32],
+    floor_clip: &mut [i32],
     out: &mut Vec<DrawCall>,
 ) {
     for seg_idx in lvl.segs_of_subsector(ss_idx) {
@@ -81,7 +120,7 @@ fn draw_subsector(
         }
 
         if let Some(edge) = project_seg(seg_idx, lvl, cam, view) {
-            build_spans(edge, lvl, cam, view, out);
+            build_spans(edge, lvl, cam, view, ceil_clip, floor_clip, out);
         }
     }
 }
@@ -200,8 +239,128 @@ fn clip_near(
 }
 
 /*────────────────────── span construction helpers ───────────────────*/
+#[derive(Clone, Copy)]
+struct ColumnStep {
+    duoz: f32,
+    dinvz: f32,
+    dyt: f32,
+    dyb: f32,
+}
 
-fn build_spans(edge: Edge, lvl: &Level, cam: &Camera, view: &ViewParams, out: &mut Vec<DrawCall>) {
+#[derive(Clone, Copy)]
+struct ColumnCursor {
+    uoz: f32,
+    invz: f32,
+    y_t: f32,
+    y_b: f32,
+}
+
+impl ColumnStep {
+    fn from_span(s: &WallSpan) -> Self {
+        let w = (s.x_end - s.x_start).max(1) as f32;
+        Self {
+            duoz: (s.u1_over_z - s.u0_over_z) / w,
+            dinvz: (s.inv_z1 - s.inv_z0) / w,
+            dyt: (s.y_top1 - s.y_top0) / w,
+            dyb: (s.y_bot1 - s.y_bot0) / w,
+        }
+    }
+}
+
+impl ColumnCursor {
+    fn from_span(s: &WallSpan) -> Self {
+        Self {
+            uoz: s.u0_over_z,
+            invz: s.inv_z0,
+            y_t: s.y_top0,
+            y_b: s.y_bot0,
+        }
+    }
+    #[inline]
+    fn step(&mut self, d: &ColumnStep) {
+        self.uoz += d.duoz;
+        self.invz += d.dinvz;
+        self.y_t += d.dyt;
+        self.y_b += d.dyb;
+    }
+}
+
+fn clip_and_emit(
+    proto: &WallSpan, // prototype span (whole edge)
+    ceil_clip: &mut [i32],
+    floor_clip: &mut [i32],
+    out: &mut Vec<DrawCall>,
+) {
+    let mut cur = ColumnCursor::from_span(proto);
+    let step = ColumnStep::from_span(proto);
+    let mut run = None::<(i32, ColumnCursor)>; // (run_start_x, cursor_at_start)
+
+    // walk every screen column
+    for x in proto.x_start..=proto.x_end {
+        let col = x as usize;
+        let vis = cur.y_t < floor_clip[col] as f32 && cur.y_b > ceil_clip[col] as f32;
+
+        if vis {
+            // ─── update per-column clip buffers ────────────────────────────
+            let y0 = cur.y_t.max(ceil_clip[col] as f32);
+            let y1 = cur.y_b.min(floor_clip[col] as f32);
+            match proto.kind {
+                ClipKind::Solid => {
+                    ceil_clip[col] = (y1 as i32).saturating_add(1);
+                    floor_clip[col] = (y0 as i32).saturating_sub(1);
+                }
+                ClipKind::Upper => ceil_clip[col] = (y1 as i32).saturating_add(1),
+                ClipKind::Lower => floor_clip[col] = (y0 as i32).saturating_sub(1),
+            }
+            // ─── grow / start the current visible run ─────────────────────
+            run.get_or_insert((x, cur));
+        } else if let Some((x0, c0)) = run.take() {
+            // ─── run ended ⇒ emit a clipped WallSpan ──────────────────────
+            out.push(DrawCall::Wall(WallSpan {
+                x_start: x0,
+                x_end: x - 1,
+                u0_over_z: c0.uoz,
+                u1_over_z: cur.uoz - step.duoz,
+                inv_z0: c0.invz,
+                inv_z1: cur.invz - step.dinvz,
+                y_top0: c0.y_t,
+                y_top1: cur.y_t - step.dyt,
+                y_bot0: c0.y_b,
+                y_bot1: cur.y_b - step.dyb,
+                ..*proto // copy wall_h, texture, kind, …
+            }));
+        }
+
+        cur.step(&step);
+    }
+
+    // tail-run falls off the end
+    if let Some((x0, c0)) = run {
+        out.push(DrawCall::Wall(WallSpan {
+            x_start: x0,
+            x_end: proto.x_end,
+            u0_over_z: c0.uoz,
+            u1_over_z: cur.uoz - step.duoz,
+            inv_z0: c0.invz,
+            inv_z1: cur.invz - step.dinvz,
+            y_top0: c0.y_t,
+            y_top1: cur.y_t - step.dyt,
+            y_bot0: c0.y_b,
+            y_bot1: cur.y_b - step.dyb,
+            ..*proto
+        }));
+    }
+}
+
+fn build_spans(
+    edge: Edge,
+    lvl: &Level,
+    cam: &Camera,
+    view: &ViewParams,
+    ceil_clip: &mut [i32],
+    floor_clip: &mut [i32],
+    out: &mut Vec<DrawCall>,
+) {
     // Resolve sidedefs / sectors ------------------------------------------------
     let seg = &lvl.segs[edge.seg_idx as usize];
     let ld = &lvl.linedefs[seg.linedef as usize];
@@ -229,27 +388,38 @@ fn build_spans(edge: Edge, lvl: &Level, cam: &Camera, view: &ViewParams, out: &m
     let eye_z = view.eye_floor_z + cam.pos().z;
     let mut push = |tex: TextureId, ceil_h: f32, floor_h: f32, kind: ClipKind| {
         let wall_h = (ceil_h - floor_h).abs();
-        let y_off = sd_front.y_off as f32; // raw sidedef offset
-        let tm_mu = texturemid(kind, ld.flags, ceil_h, floor_h, eye_z, y_off);
-
-        out.push(DrawCall::Wall(WallSpan {
-            /* projection */
-            tex_id: tex,
-            u0_over_z: edge.uoz_l,
-            u1_over_z: edge.uoz_r,
-            inv_z0: edge.invz_l,
-            inv_z1: edge.invz_r,
-            x_start: edge.x_l,
-            x_end: edge.x_r,
-            y_top0: view.half_h - (ceil_h - eye_z) * view.focal * edge.invz_l,
-            y_top1: view.half_h - (ceil_h - eye_z) * view.focal * edge.invz_r,
-            y_bot0: view.half_h - (floor_h - eye_z) * view.focal * edge.invz_l,
-            y_bot1: view.half_h - (floor_h - eye_z) * view.focal * edge.invz_r,
+        let tm_mu = texturemid(
             kind,
-            /* tiling */
-            wall_h,
-            texturemid_mu: tm_mu,
-        }));
+            ld.flags,
+            ceil_h,
+            floor_h,
+            eye_z,
+            sd_front.y_off as f32,
+        );
+
+        clip_and_emit(
+            &WallSpan {
+                /* projection */
+                tex_id: tex,
+                u0_over_z: edge.uoz_l,
+                u1_over_z: edge.uoz_r,
+                inv_z0: edge.invz_l,
+                inv_z1: edge.invz_r,
+                x_start: edge.x_l,
+                x_end: edge.x_r,
+                y_top0: view.half_h - (ceil_h - eye_z) * view.focal * edge.invz_l,
+                y_top1: view.half_h - (ceil_h - eye_z) * view.focal * edge.invz_r,
+                y_bot0: view.half_h - (floor_h - eye_z) * view.focal * edge.invz_l,
+                y_bot1: view.half_h - (floor_h - eye_z) * view.focal * edge.invz_r,
+                kind,
+                /* tiling */
+                wall_h,
+                texturemid_mu: tm_mu,
+            },
+            ceil_clip,
+            floor_clip,
+            out,
+        );
     };
 
     // Decide which spans to draw -----------------------------------------------
