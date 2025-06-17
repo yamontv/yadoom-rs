@@ -27,7 +27,6 @@ fn main() -> anyhow::Result<()> {
 
     let mut win = Window::new("Software Doom viewer", W, H, WindowOptions::default())?;
     win.set_target_fps(35);
-    let mut fb = vec![0u32; W * H];
     let mut sw = Software::default();
 
     while win.is_open() && !win.is_key_down(Key::Escape) {
@@ -57,8 +56,9 @@ fn main() -> anyhow::Result<()> {
 
         /* draw */
         let calls = pipeline::build_drawcalls(&level, &cam, W, H);
-        sw.draw_frame(&mut fb, W, H, &calls, &bank);
-        win.update_with_buffer(&fb, W, H)?;
+        sw.draw_frame(W, H, &calls, &bank, |fb, w, h| {
+            win.update_with_buffer(fb, w, h).unwrap()
+        });
     }
     Ok(())
 }

@@ -52,48 +52,48 @@ pub struct DrawCall {
     pub texturemid_mu: f32, // (ceil_h − eyeZ) + y_off     in map units
 }
 
-/// Backend-agnostic rendering interface.
+/// A renderer that owns an internal scratch buffer for the whole frame.
+///
+/// `end_frame` hands the finished buffer to a user-supplied closure.
+/// Software callers typically forward it to their window-manager;
+/// GPU back-ends can ignore the slice because they never allocate it.
 pub trait Renderer {
-    /// Allocate / reuse internal scratch buffer and reset state.
+    /// (Re)allocate internal scratch for the requested resolution and clear it.
     fn begin_frame(&mut self, width: usize, height: usize);
 
-    /// Rasterise one wall-span into the **internal** buffer.
-    fn draw_wall(&mut self, call: &DrawCall, textures: &TextureBank);
+    /// Rasterise one textured wall span into the internal buffer.
+    fn draw_wall(&mut self, call: &DrawCall, bank: &TextureBank);
 
-    /// Finish the frame.
+    /// Finish the frame and **loan** the finished buffer to `submit`.
     ///
-    /// * **software back-ends** expect `target = Some(fb)` and must copy the
-    ///   scratch buffer into that slice.
-    /// * **GPU back-ends** receive `None` and simply present / swap buffers.
-    fn end_frame(&mut self, target: Option<&mut [Rgba]>);
+    /// * `submit(&[Rgba], w, h)` is run exactly once per frame.
+    /// * Software caller passes `|fb, w, h| window.update_with_buffer(fb, w, h)`.
+    /// * GPU back-end simply calls the closure with an empty slice:
+    ///   `submit(&[], width, height)`.
+    fn end_frame<F>(&mut self, submit: F)
+    where
+        F: FnOnce(&[Rgba], usize, usize);
 }
 
 /// Convenience blanket-impl with a one-liner `draw_frame` adaptor.
 pub trait RendererExt: Renderer {
-    fn draw_frame(
+    fn draw_frame<F>(
         &mut self,
-        target: &mut [Rgba],
-        w: usize,
-        h: usize,
+        width: usize,
+        height: usize,
         calls: &[DrawCall],
         bank: &TextureBank,
-    ) {
-        self.begin_frame(w, h);
-        for dc in calls {
-            self.draw_wall(dc, bank);
+        submit: F,
+    ) where
+        F: FnOnce(&[Rgba], usize, usize),
+    {
+        self.begin_frame(width, height);
+        for c in calls {
+            self.draw_wall(c, bank);
         }
-        self.end_frame(Some(target));
+        self.end_frame(submit);
     }
 }
 impl<T: Renderer + ?Sized> RendererExt for T {}
-
-/// Stub backend that does nothing – handy for headless tests.
-#[derive(Default)]
-pub struct Dummy;
-impl Renderer for Dummy {
-    fn begin_frame(&mut self, _w: usize, _h: usize) {}
-    fn draw_wall(&mut self, _c: &DrawCall, _tex: &TextureBank) {}
-    fn end_frame(&mut self, _tgt: Option<&mut [Rgba]>) {}
-}
 
 pub mod software;

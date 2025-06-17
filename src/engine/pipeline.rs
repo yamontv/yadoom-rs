@@ -235,7 +235,7 @@ fn build_spans(edge: Edge, lvl: &Level, cam: &Camera, view: &ViewParams, out: &m
         out.push(DrawCall {
             /* projection */
             tex_id: tex,
-            u0_over_z: edge.uoz_l + (edge.uoz_r - edge.uoz_l) * edge.frac_l,
+            u0_over_z: edge.uoz_l,
             u1_over_z: edge.uoz_r,
             inv_z0: edge.invz_l,
             inv_z1: edge.invz_r,

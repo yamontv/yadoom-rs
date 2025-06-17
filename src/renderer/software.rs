@@ -4,10 +4,6 @@
 //! * Fills an `&mut [u32]` frame-buffer in **0xAARRGGBB** format.
 //! * Relies on the BSP pipeline to feed *front-to-back* [`DrawCall`]s, so no
 //!   Z-buffer is needed.
-//!
-//! Safety: the only `unsafe` block reconstructs an `&mut [u32]` slice from the
-//! raw pointer cached in `begin_frame` – the pointer’s lifetime is bounded by
-//! `begin_frame`/`end_frame`.
 //! ---------------------------------------------------------------------------
 
 use crate::{
@@ -46,6 +42,7 @@ impl Renderer for Software {
     fn begin_frame(&mut self, w: usize, h: usize) {
         // (re)allocate if resolution changed
         if w != self.width || h != self.height {
+            debug_assert!(w * h != 0);
             self.width = w;
             self.height = h;
             self.scratch.resize(w * h, 0);
@@ -62,6 +59,8 @@ impl Renderer for Software {
     }
 
     fn draw_wall(&mut self, dc: &DrawCall, bank: &TextureBank) {
+        debug_assert!(dc.x_end < self.width as i32);
+
         let tex = bank
             .texture(dc.tex_id)
             .unwrap_or_else(|_| bank.texture(NO_TEXTURE).unwrap());
@@ -82,11 +81,11 @@ impl Renderer for Software {
         }
     }
 
-    fn end_frame(&mut self, target: Option<&mut [Rgba]>) {
-        if let Some(dst) = target {
-            debug_assert_eq!(dst.len(), self.scratch.len());
-            dst.copy_from_slice(&self.scratch); // one fast memcpy
-        }
+    fn end_frame<F>(&mut self, submit: F)
+    where
+        F: FnOnce(&[Rgba], usize, usize),
+    {
+        submit(&self.scratch, self.width, self.height);
     }
 }
 
@@ -232,15 +231,21 @@ mod tests {
 
     #[test]
     fn software_renders_span() {
-        let mut fb = vec![0; 8 * 8];
         let bank = tiny_bank();
         let mut sw = Software::default();
 
-        sw.draw_frame(&mut fb, 8, 8, &[blue_span()], &bank);
-
-        assert!(
-            fb.iter().any(|&px| px == 0xFF_0000FF),
-            "renderer failed to write any blue pixels"
+        sw.draw_frame(
+            8,              // width
+            8,              // height
+            &[blue_span()], // draw-calls
+            &bank,          // texture bank
+            |fb, _w, _h| {
+                // <-- submit closure
+                assert!(
+                    fb.iter().any(|&px| px == 0xFF_0000FF),
+                    "renderer failed to write any blue pixels"
+                );
+            },
         );
     }
 }
