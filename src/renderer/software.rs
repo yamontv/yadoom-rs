@@ -157,10 +157,18 @@ impl Renderer for Software {
             }
 
             let z = 1.0 / invz;
-            let u_i = ((uoz * z) as i32).rem_euclid(tex.w as i32) as usize;
-            let v_i = ((voz * z) as i32).rem_euclid(tex.h as i32) as usize;
+            let mut u_f = uoz * z;
+            let mut v_f = voz * z;
 
-            fb[col] = tex.pixels[v_i * tex.w + u_i];
+            /* wrap first, then clamp into the open interval [0, w-1] / [0, h-1] */
+            u_f = u_f.rem_euclid(tex.w as f32).min((tex.w - 1) as f32);
+            v_f = v_f.rem_euclid(tex.h as f32).min((tex.h - 1) as f32);
+
+            let u_i = u_f as usize;
+            let v_i = v_f as usize;
+
+            let texel = tex.pixels[v_i * tex.w + u_i];
+            fb[col] = texel;
 
             uoz += duoz;
             voz += dvoz;
@@ -274,7 +282,8 @@ impl Software {
                 self.ceil_clip[col] = (y1 as i32).saturating_sub(1);
             }
             ClipKind::Lower => {
-                self.floor_clip[col] = (y0 as i32).saturating_add(1);
+                /* FIX: use y1 (bottom of the lower-texture), not y0 */
+                self.floor_clip[col] = (y1 as i32).saturating_add(1);
             }
         }
     }
