@@ -2,12 +2,12 @@
 //! Classic software (CPU) column renderer
 //!
 //! * Fills an `&mut [u32]` frame-buffer in **0xAARRGGBB** format.
-//! * Relies on the BSP pipeline to feed *front-to-back* [`DrawCall`]s, so no
+//! * Relies on the BSP pipeline to feed *front-to-back* [`WallSpan`]s, so no
 //!   Z-buffer is needed.
 //! ---------------------------------------------------------------------------
 
 use crate::{
-    renderer::{ClipKind, DrawCall, Renderer, Rgba},
+    renderer::{ClipKind, PlaneSpan, Renderer, Rgba, WallSpan},
     world::texture::{NO_TEXTURE, TextureBank},
 };
 
@@ -58,26 +58,64 @@ impl Renderer for Software {
         self.floor_clip.fill(self.height as i32 - 1);
     }
 
-    fn draw_wall(&mut self, dc: &DrawCall, bank: &TextureBank) {
-        debug_assert!(dc.x_end < self.width as i32);
+    fn draw_wall(&mut self, wall_span: &WallSpan, bank: &TextureBank) {
+        debug_assert!(wall_span.x_end < self.width as i32);
 
         let tex = bank
-            .texture(dc.tex_id)
+            .texture(wall_span.tex_id)
             .unwrap_or_else(|_| bank.texture(NO_TEXTURE).unwrap());
 
         /* pre-compute per-column linear increments ----------------------------*/
-        let span_w = (dc.x_end - dc.x_start).max(1) as f32;
-        let step = ColumnStep::from_drawcall(dc, span_w);
+        let span_w = (wall_span.x_end - wall_span.x_start).max(1) as f32;
+        let step = ColumnStep::from_drawcall(wall_span, span_w);
 
         /* cursor that will walk across the wall strip */
-        let mut cur = ColumnCursor::from_drawcall(dc);
+        let mut cur = ColumnCursor::from_drawcall(wall_span);
 
         /* render every vertical column in the span ---------------------------*/
-        for x in dc.x_start..=dc.x_end {
+        for x in wall_span.x_start..=wall_span.x_end {
             if self.column_visible(x, cur.y_top, cur.y_bot) {
-                self.draw_column(x, cur, dc, tex);
+                self.draw_column(x, cur, wall_span, tex);
             }
             cur.advance(&step);
+        }
+    }
+
+    fn draw_plane(&mut self, pc: &PlaneSpan, bank: &TextureBank) {
+        let tex = bank.texture(pc.tex_id).unwrap();
+        let span = (pc.x_end - pc.x_start).max(1) as f32;
+
+        /* 1×/span linear increments */
+        let duoz = (pc.u1_over_z - pc.u0_over_z) / span;
+        let dvoz = (pc.v1_over_z - pc.v0_over_z) / span;
+        let dinvz = (pc.inv_z1 - pc.inv_z0) / span;
+
+        /* left edge cursor */
+        let mut uoz = pc.u0_over_z;
+        let mut voz = pc.v0_over_z;
+        let mut invz = pc.inv_z0;
+
+        let y = pc.y as usize;
+        let fb = &mut self.scratch[y * self.width..(y + 1) * self.width];
+        for x in pc.x_start..=pc.x_end {
+            let col = x as usize;
+            /* honour the clip bands you already track */
+            if pc.is_floor && y < self.floor_clip[col] as usize {
+                continue;
+            }
+            if !pc.is_floor && y > self.ceil_clip[col] as usize {
+                continue;
+            }
+
+            /* perspective-correct UV */
+            let inv = 1.0 / invz;
+            let u = ((uoz * inv) as i32).rem_euclid(tex.w as i32) as usize;
+            let v = ((voz * inv) as i32).rem_euclid(tex.h as i32) as usize;
+            fb[col] = tex.pixels[v * tex.w + u];
+
+            uoz += duoz;
+            voz += dvoz;
+            invz += dinvz;
         }
     }
 
@@ -100,12 +138,12 @@ struct ColumnStep {
     dybot: f32,
 }
 impl ColumnStep {
-    fn from_drawcall(dc: &DrawCall, span_w: f32) -> Self {
+    fn from_drawcall(wall_span: &WallSpan, span_w: f32) -> Self {
         Self {
-            duoz: (dc.u1_over_z - dc.u0_over_z) / span_w,
-            dinvz: (dc.inv_z1 - dc.inv_z0) / span_w,
-            dytop: (dc.y_top1 - dc.y_top0) / span_w,
-            dybot: (dc.y_bot1 - dc.y_bot0) / span_w,
+            duoz: (wall_span.u1_over_z - wall_span.u0_over_z) / span_w,
+            dinvz: (wall_span.inv_z1 - wall_span.inv_z0) / span_w,
+            dytop: (wall_span.y_top1 - wall_span.y_top0) / span_w,
+            dybot: (wall_span.y_bot1 - wall_span.y_bot0) / span_w,
         }
     }
 }
@@ -119,12 +157,12 @@ struct ColumnCursor {
     y_bot: f32,
 }
 impl ColumnCursor {
-    fn from_drawcall(dc: &DrawCall) -> Self {
+    fn from_drawcall(wall_span: &WallSpan) -> Self {
         Self {
-            uoz: dc.u0_over_z,
-            inv_z: dc.inv_z0,
-            y_top: dc.y_top0,
-            y_bot: dc.y_bot0,
+            uoz: wall_span.u0_over_z,
+            inv_z: wall_span.inv_z0,
+            y_top: wall_span.y_top0,
+            y_bot: wall_span.y_bot0,
         }
     }
 
@@ -152,7 +190,7 @@ impl Software {
         &mut self,
         x: i32,
         cur: ColumnCursor,
-        dc: &DrawCall,
+        wall_span: &WallSpan,
         tex: &crate::world::texture::Texture,
     ) {
         /* clip to integer pixel rows */
@@ -165,9 +203,9 @@ impl Software {
 
         /* fixed Doom tiling ---------------------------------------------------*/
         let col_h_px = (cur.y_bot - cur.y_top).max(1.0);
-        let step_v = dc.wall_h / col_h_px; // map-units / px
+        let step_v = wall_span.wall_h / col_h_px; // map-units / px
         let center_y = self.height as f32 * 0.5;
-        let mut v_mu = dc.texturemid_mu + (y0 as f32 - center_y) * step_v;
+        let mut v_mu = wall_span.texturemid_mu + (y0 as f32 - center_y) * step_v;
 
         let u_tex = ((cur.uoz / cur.inv_z) as i32).rem_euclid(tex.w as i32) as usize;
 
@@ -178,7 +216,7 @@ impl Software {
         }
 
         /* update clip bands so farther geometry is culled */
-        match dc.kind {
+        match wall_span.kind {
             ClipKind::Solid => {
                 self.ceil_clip[col] = (y1 as i32).saturating_add(1);
                 self.floor_clip[col] = (y0 as i32).saturating_sub(1);
@@ -194,7 +232,7 @@ impl Software {
 mod tests {
     use super::*;
     use crate::{
-        renderer::RendererExt,
+        renderer::{DrawCall, RendererExt},
         world::texture::{Texture, TextureBank},
     };
 
@@ -213,7 +251,7 @@ mod tests {
         bank
     }
     fn blue_span() -> DrawCall {
-        DrawCall {
+        DrawCall::Wall(WallSpan {
             tex_id: 1,
             u0_over_z: 0.0,
             u1_over_z: 1.0,
@@ -228,7 +266,7 @@ mod tests {
             kind: ClipKind::Lower,
             texturemid_mu: 0.0,
             wall_h: 10.0,
-        }
+        })
     }
 
     #[test]

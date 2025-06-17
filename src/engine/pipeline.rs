@@ -12,7 +12,7 @@
 use glam::{Vec2, vec2};
 
 use crate::{
-    renderer::{ClipKind, DrawCall},
+    renderer::{ClipKind, DrawCall, PlaneSpan, WallSpan},
     world::{
         bsp::{CHILD_MASK, SUBSECTOR_BIT},
         camera::Camera,
@@ -46,9 +46,16 @@ pub fn build_drawcalls(level: &Level, cam: &Camera, w: usize, h: usize) -> Vec<D
         eye_floor_z: eye_floor,
     };
 
-    let mut calls = Vec::<DrawCall>::with_capacity(2_048);
+    let mut calls = Vec::<DrawCall>::with_capacity(3_072);
     walk_bsp(level.bsp_root() as u16, level, cam, &view, &mut calls);
+    build_visplanes(level, cam, &view, &mut calls);
     calls
+}
+
+/*──────────────────────────── Visplanes ──────────────────────────*/
+
+fn build_visplanes(lvl: &Level, cam: &Camera, view: &ViewParams, out: &mut Vec<DrawCall>) {
+    // TODO
 }
 
 /*──────────────────────────── BSP traversal ──────────────────────────*/
@@ -232,7 +239,7 @@ fn build_spans(edge: Edge, lvl: &Level, cam: &Camera, view: &ViewParams, out: &m
         let y_off = sd_front.y_off as f32; // raw sidedef offset
         let tm_mu = texturemid(kind, ld.flags, ceil_h, floor_h, eye_z, y_off);
 
-        out.push(DrawCall {
+        out.push(DrawCall::Wall(WallSpan {
             /* projection */
             tex_id: tex,
             u0_over_z: edge.uoz_l,
@@ -249,7 +256,7 @@ fn build_spans(edge: Edge, lvl: &Level, cam: &Camera, view: &ViewParams, out: &m
             /* tiling */
             wall_h,
             texturemid_mu: tm_mu,
-        });
+        }));
     };
 
     // Decide which spans to draw -----------------------------------------------
@@ -404,11 +411,18 @@ mod tests {
         let cam = Camera::new(glam::Vec3::new(0.0, 0.0, 41.0), 0.0, 1.57);
 
         for dc in build_drawcalls(&level, &cam, 640, 400) {
-            assert!(
-                dc.y_top0 <= dc.y_bot0 && dc.y_top1 <= dc.y_bot1,
-                "y_top > y_bot for drawcall {:?}",
-                dc
-            );
+            match dc {
+                DrawCall::Wall(w) => assert!(
+                    w.y_top0 <= w.y_bot0 && w.y_top1 <= w.y_bot1,
+                    "Wall y_top > y_bot for drawcall {:?}",
+                    w
+                ),
+                DrawCall::Plane(p) => assert!(
+                    p.x_start <= p.x_end,
+                    "Plane x_start > x_end for drawcall {:?}",
+                    p
+                ),
+            }
         }
     }
 

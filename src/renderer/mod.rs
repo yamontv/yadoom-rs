@@ -29,7 +29,7 @@ pub enum ClipKind {
 /// Non-clipped information for one vertical wall slice batch.
 /// `x_start ..= x_end` maps to screen columns.
 #[derive(Clone, Debug)]
-pub struct DrawCall {
+pub struct WallSpan {
     pub tex_id: TextureId,
 
     /* perspective-correct texture coords (already divided by z) */
@@ -52,6 +52,31 @@ pub struct DrawCall {
     pub texturemid_mu: f32, // (ceil_h − eyeZ) + y_off     in map units
 }
 
+/// Horizontal span along one scan-line (y) that shares the same
+/// floor/ceiling plane and texture.
+#[derive(Clone, Debug)]
+pub struct PlaneSpan {
+    pub tex_id: TextureId,
+    /* perspective-correct UV/z at span edges */
+    pub u0_over_z: f32,
+    pub v0_over_z: f32,
+    pub u1_over_z: f32,
+    pub v1_over_z: f32,
+    pub inv_z0: f32,
+    pub inv_z1: f32,
+    /* screen extents */
+    pub y: i32,
+    pub x_start: i32,
+    pub x_end: i32,
+    /* is this the floor or the ceiling? */
+    pub is_floor: bool,
+}
+
+pub enum DrawCall {
+    Wall(WallSpan),
+    Plane(PlaneSpan),
+}
+
 /// A renderer that owns an internal scratch buffer for the whole frame.
 ///
 /// `end_frame` hands the finished buffer to a user-supplied closure.
@@ -62,7 +87,10 @@ pub trait Renderer {
     fn begin_frame(&mut self, width: usize, height: usize);
 
     /// Rasterise one textured wall span into the internal buffer.
-    fn draw_wall(&mut self, call: &DrawCall, bank: &TextureBank);
+    fn draw_wall(&mut self, wall_span: &WallSpan, bank: &TextureBank);
+
+    /// Rasterise one textured plane span into the internal buffer.
+    fn draw_plane(&mut self, plane_span: &PlaneSpan, bank: &TextureBank);
 
     /// Finish the frame and **loan** the finished buffer to `submit`.
     ///
@@ -89,7 +117,10 @@ pub trait RendererExt: Renderer {
     {
         self.begin_frame(width, height);
         for c in calls {
-            self.draw_wall(c, bank);
+            match c {
+                DrawCall::Wall(w) => self.draw_wall(w, bank),
+                DrawCall::Plane(p) => self.draw_plane(p, bank),
+            }
         }
         self.end_frame(submit);
     }
