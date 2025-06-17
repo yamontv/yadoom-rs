@@ -12,7 +12,7 @@
 use glam::{Vec2, vec2};
 
 use crate::{
-    renderer::{ClipKind, DrawCall, PlaneSpan, WallSpan},
+    renderer::{ClipKind, DrawCall, WallSpan},
     world::{
         bsp::{CHILD_MASK, SUBSECTOR_BIT},
         camera::Camera,
@@ -48,14 +48,7 @@ pub fn build_drawcalls(level: &Level, cam: &Camera, w: usize, h: usize) -> Vec<D
 
     let mut calls = Vec::<DrawCall>::with_capacity(3_072);
     walk_bsp(level.bsp_root() as u16, level, cam, &view, &mut calls);
-    build_visplanes(level, cam, &view, &mut calls);
     calls
-}
-
-/*──────────────────────────── Visplanes ──────────────────────────*/
-
-fn build_visplanes(lvl: &Level, cam: &Camera, view: &ViewParams, out: &mut Vec<DrawCall>) {
-    // TODO
 }
 
 /*──────────────────────────── BSP traversal ──────────────────────────*/
