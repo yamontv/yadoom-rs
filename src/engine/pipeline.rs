@@ -99,8 +99,55 @@ fn walk_bsp(
             floor_clip,
             out,
         ); // near
-        walk_bsp(node.child[back], lvl, cam, view, ceil_clip, floor_clip, out); // far
+
+        if bbox_visible(&node.bbox[back], cam, view) {
+            walk_bsp(node.child[back], lvl, cam, view, ceil_clip, floor_clip, out); // far
+        }
     }
+}
+
+/// Fast conservative test: returns **true** if any part of `bbox`
+/// can project inside the screen rectangle.
+///
+/// Doom’s original uses angle tables; here we re-implement it by
+/// transforming the four corners into camera space and checking their
+/// projected X range.
+fn bbox_visible(bbox: &[i16; 4], cam: &Camera, view: &ViewParams) -> bool {
+    // Doom stores (top, bottom, left, right) – convert to floats
+    let (mut x1, mut x2) = (bbox[2] as f32, bbox[3] as f32); // left, right
+    let (mut y1, mut y2) = (bbox[1] as f32, bbox[0] as f32); // bottom, top
+    if x1 > x2 {
+        core::mem::swap(&mut x1, &mut x2);
+    }
+    if y1 > y2 {
+        core::mem::swap(&mut y1, &mut y2);
+    }
+
+    const CORNERS: [(usize, usize); 4] = [(0, 0), (0, 1), (1, 0), (1, 1)];
+    let near = cam.near();
+    let mut min_sx = f32::INFINITY;
+    let mut max_sx = -f32::INFINITY;
+    let mut any_in_front = false;
+
+    for (ix, iy) in CORNERS {
+        let p_world = vec2(if ix == 0 { x1 } else { x2 }, if iy == 0 { y1 } else { y2 });
+        let p_cam = cam.to_cam(p_world);
+        if p_cam.y <= near {
+            continue;
+        } // behind near plane
+        any_in_front = true;
+        let sx = view.half_w + p_cam.x * view.focal / p_cam.y;
+        min_sx = min_sx.min(sx);
+        max_sx = max_sx.max(sx);
+    }
+    if !any_in_front {
+        return false;
+    } // whole box behind us
+    // off-screen to the left or right?
+    if max_sx < 0.0 || min_sx >= view.view_w as f32 {
+        return false;
+    }
+    true
 }
 
 /*───────────────────────── subsector → spans ─────────────────────────*/

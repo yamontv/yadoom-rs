@@ -1,4 +1,5 @@
 use minifb::{Key, Window, WindowOptions};
+use std::time::{Duration, Instant};
 use yadoom_rs::{
     engine::pipeline,
     renderer::{RendererExt, software::Software},
@@ -29,7 +30,14 @@ fn main() -> anyhow::Result<()> {
     win.set_target_fps(35);
     let mut sw = Software::default();
 
+    // ────────────────── benchmarking state ──────────────────────────────
+    let mut acc_time = Duration::ZERO; // cumulated render time
+    let mut acc_frames = 0usize; // frames in the current window
+    let mut last_print = Instant::now(); // when we printed last
+
     while win.is_open() && !win.is_key_down(Key::Escape) {
+        let t0 = Instant::now(); // ┌─ frame timer start
+
         /* movement intent */
         let (mut dx, mut dy, mut yaw) = (0., 0., 0.);
         if win.is_key_down(Key::W) || win.is_key_down(Key::Up) {
@@ -57,8 +65,20 @@ fn main() -> anyhow::Result<()> {
         /* draw */
         let calls = pipeline::build_drawcalls(&level, &cam, W, H);
         sw.draw_frame(W, H, &calls, &bank, |fb, w, h| {
+            // ─────────── accumulate & report every ~3 s ────────────────────
+            acc_time += t0.elapsed();
+            acc_frames += 1;
             win.update_with_buffer(fb, w, h).unwrap()
         });
+
+        if last_print.elapsed() >= Duration::from_secs(3) {
+            let avg_ms = acc_time.as_secs_f64() * 1000.0 / acc_frames as f64;
+            let fps = 1000.0 / avg_ms;
+            println!("avg render: {:.2} ms  ({:.1} FPS)", avg_ms, fps);
+            acc_time = Duration::ZERO;
+            acc_frames = 0;
+            last_print = Instant::now();
+        }
     }
     Ok(())
 }
