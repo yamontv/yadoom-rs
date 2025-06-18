@@ -325,89 +325,42 @@ impl ColumnCursor {
     }
 }
 
-fn clip_and_emit<R: Renderer>(
+pub fn emit_and_clip<R: Renderer>(
     proto: &WallSpan,
     bands: &mut ClipBands,
     renderer: &mut R,
     bank: &TextureBank,
 ) {
-    let mut cur = ColumnCursor::from_span(proto);
+    // 1 ─── draw first, while bands still contain the old limits
+    renderer.draw_wall(proto, bands, bank);
+
+    // 2 ─── now update bands for every column that was really drawn
     let step = ColumnStep::from_span(proto);
-    let mut run = None::<(i32, ColumnCursor)>; // (x_start, cursor_at_start)
+    let mut cur = ColumnCursor::from_span(proto);
 
     for x in proto.x_start..=proto.x_end {
         let col = x as usize;
-        let vis = cur.y_t < bands.floor[col] as f32 && cur.y_b > bands.ceil[col] as f32;
 
-        if vis {
-            run.get_or_insert((x, cur)); // grow or start run
-        } else if let Some((x0, c0)) = run.take() {
-            emit_span_and_update(proto, x0, x - 1, c0, cur, &step, bands, renderer, bank);
+        // remember the *old* limits before we overwrite them
+        let old_ceil = bands.ceil[col];
+        let old_floor = bands.floor[col];
+
+        // part of the wall that was visible in this column
+        let y0 = cur.y_t.max(old_ceil as f32).ceil() as i32;
+        let y1 = cur.y_b.min(old_floor as f32).floor() as i32;
+
+        if y0 <= y1 {
+            match proto.kind {
+                ClipKind::Solid => {
+                    bands.ceil[col] = (y1 as i32).saturating_add(1);
+                    bands.floor[col] = (y0 as i32).saturating_sub(1);
+                }
+                ClipKind::Upper => bands.ceil[col] = (y1 as i32).saturating_add(1),
+                ClipKind::Lower => bands.floor[col] = (y0 as i32).saturating_sub(1),
+            }
         }
 
         cur.step(&step);
-    }
-
-    // tail run
-    if let Some((x0, c0)) = run {
-        emit_span_and_update(
-            proto,
-            x0,
-            proto.x_end,
-            c0,
-            cur,
-            &step,
-            bands,
-            renderer,
-            bank,
-        );
-    }
-}
-
-#[inline]
-fn emit_span_and_update<R: Renderer>(
-    proto: &WallSpan,
-    x0: i32,
-    x1: i32,
-    c0: ColumnCursor,
-    cur: ColumnCursor,
-    step: &ColumnStep,
-    bands: &mut ClipBands,
-    renderer: &mut R,
-    bank: &TextureBank,
-) {
-    // ── 1. draw wall using *old* clip buffers ──────────────────────────────
-    let span = WallSpan {
-        x_start: x0,
-        x_end: x1,
-        u0_over_z: c0.uoz,
-        u1_over_z: cur.uoz - step.duoz,
-        inv_z0: c0.invz,
-        inv_z1: cur.invz - step.dinvz,
-        y_top0: c0.y_t,
-        y_top1: cur.y_t - step.dyt,
-        y_bot0: c0.y_b,
-        y_bot1: cur.y_b - step.dyb,
-        ..*proto
-    };
-    renderer.draw_wall(&span, bands, bank);
-
-    // ── 2. *now* update per-column clip buffers ────────────────────────────
-    let mut upd = c0;
-    for x in x0..=x1 {
-        let col = x as usize;
-        let y0 = upd.y_t.max(bands.ceil[col] as f32);
-        let y1 = upd.y_b.min(bands.floor[col] as f32);
-
-        match proto.kind {
-            ClipKind::Solid => {
-                bands.ceil[col] = (y1 as i32).saturating_add(1);
-                bands.floor[col] = (y0 as i32).saturating_sub(1);
-            }
-            ClipKind::Upper => bands.ceil[col] = (y1 as i32).saturating_add(1),
-            ClipKind::Lower => bands.floor[col] = (y0 as i32).saturating_sub(1),
-        }
-        upd.step(step);
     }
 }
 
@@ -456,7 +409,7 @@ fn build_spans<R: Renderer>(
             sd_front.y_off as f32,
         );
 
-        clip_and_emit(
+        emit_and_clip(
             &WallSpan {
                 /* projection */
                 tex_id: tex,
