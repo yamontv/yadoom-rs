@@ -72,59 +72,28 @@ pub struct PlaneSpan {
     pub is_floor: bool,
 }
 
-pub enum DrawCall {
-    Wall(WallSpan),
-    Plane(PlaneSpan),
+/// Reference to the shared front-to-back clip state.
+/// Software back-ends read it, GPU ones will ignore it.
+pub struct ClipBands<'a> {
+    pub ceil: &'a mut [i32],
+    pub floor: &'a mut [i32],
 }
 
-/// A renderer that owns an internal scratch buffer for the whole frame.
-///
-/// `end_frame` hands the finished buffer to a user-supplied closure.
-/// Software callers typically forward it to their window-manager;
-/// GPU back-ends can ignore the slice because they never allocate it.
+/// One-direction streaming renderer.
 pub trait Renderer {
-    /// (Re)allocate internal scratch for the requested resolution and clear it.
-    fn begin_frame(&mut self, width: usize, height: usize);
+    /// Allocate/clear internal buffers.
+    fn begin_frame(&mut self, w: usize, h: usize);
 
-    /// Rasterise one textured wall span into the internal buffer.
-    fn draw_wall(&mut self, wall_span: &WallSpan, bank: &TextureBank);
+    /// Rasterise a (already-clipped) wall span.
+    fn draw_wall(&mut self, span: &WallSpan, bands: &ClipBands, bank: &TextureBank);
 
-    /// Rasterise one textured plane span into the internal buffer.
-    fn draw_plane(&mut self, plane_span: &PlaneSpan, bank: &TextureBank);
+    /// Rasterise a floor/ceiling span (future work – unchanged idea).
+    fn draw_plane(&mut self, span: &PlaneSpan, bands: &ClipBands, bank: &TextureBank);
 
-    /// Finish the frame and **loan** the finished buffer to `submit`.
-    ///
-    /// * `submit(&[Rgba], w, h)` is run exactly once per frame.
-    /// * Software caller passes `|fb, w, h| window.update_with_buffer(fb, w, h)`.
-    /// * GPU back-end simply calls the closure with an empty slice:
-    ///   `submit(&[], width, height)`.
+    /// Present the finished frame.
     fn end_frame<F>(&mut self, submit: F)
     where
         F: FnOnce(&[Rgba], usize, usize);
 }
-
-/// Convenience blanket-impl with a one-liner `draw_frame` adaptor.
-pub trait RendererExt: Renderer {
-    fn draw_frame<F>(
-        &mut self,
-        width: usize,
-        height: usize,
-        calls: &[DrawCall],
-        bank: &TextureBank,
-        submit: F,
-    ) where
-        F: FnOnce(&[Rgba], usize, usize),
-    {
-        self.begin_frame(width, height);
-        for c in calls {
-            match c {
-                DrawCall::Wall(w) => self.draw_wall(w, bank),
-                DrawCall::Plane(p) => self.draw_plane(p, bank),
-            }
-        }
-        self.end_frame(submit);
-    }
-}
-impl<T: Renderer + ?Sized> RendererExt for T {}
 
 pub mod software;

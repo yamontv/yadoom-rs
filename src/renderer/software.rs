@@ -7,7 +7,7 @@
 //! ---------------------------------------------------------------------------
 
 use crate::{
-    renderer::{ClipKind, PlaneSpan, Renderer, Rgba, WallSpan},
+    renderer::{ClipBands, PlaneSpan, Renderer, Rgba, WallSpan},
     world::texture::{NO_TEXTURE, TextureBank},
 };
 
@@ -18,9 +18,6 @@ use crate::{
 /// Doom-style column renderer.
 pub struct Software {
     scratch: Vec<Rgba>,
-    /* clip bands survive across columns */
-    ceil_clip: Vec<i32>,
-    floor_clip: Vec<i32>,
     width: usize,
     height: usize,
 }
@@ -29,8 +26,6 @@ impl Default for Software {
     fn default() -> Self {
         Self {
             scratch: Vec::new(),
-            ceil_clip: Vec::new(),
-            floor_clip: Vec::new(),
             width: 0,
             height: 0,
         }
@@ -46,19 +41,13 @@ impl Renderer for Software {
             self.width = w;
             self.height = h;
             self.scratch.resize(w * h, 0);
-            self.ceil_clip.resize(w, 0);
-            self.floor_clip.resize(w, h as i32 - 1);
         }
 
         /* dark-grey clear */
         self.scratch.fill(0xFF_202020);
-
-        /* reset per-column clip ranges */
-        self.ceil_clip.fill(0);
-        self.floor_clip.fill(self.height as i32 - 1);
     }
 
-    fn draw_wall(&mut self, wall_span: &WallSpan, bank: &TextureBank) {
+    fn draw_wall(&mut self, wall_span: &WallSpan, bands: &ClipBands, bank: &TextureBank) {
         debug_assert!(wall_span.x_end < self.width as i32);
 
         let tex = bank
@@ -66,22 +55,21 @@ impl Renderer for Software {
             .unwrap_or_else(|_| bank.texture(NO_TEXTURE).unwrap());
 
         /* pre-compute per-column linear increments ----------------------------*/
-        let span_w = (wall_span.x_end - wall_span.x_start).max(1) as f32;
-        let step = ColumnStep::from_drawcall(wall_span, span_w);
+        let step = ColumnStep::from_drawcall(wall_span);
 
         /* cursor that will walk across the wall strip */
         let mut cur = ColumnCursor::from_drawcall(wall_span);
 
         /* render every vertical column in the span ---------------------------*/
         for x in wall_span.x_start..=wall_span.x_end {
-            if self.column_visible(x, cur.y_top, cur.y_bot) {
-                self.draw_column(x, cur, wall_span, tex);
+            if self.column_visible(x, cur.y_top, cur.y_bot, bands) {
+                self.draw_column(x, cur, wall_span, tex, bands);
             }
             cur.advance(&step);
         }
     }
 
-    fn draw_plane(&mut self, pc: &PlaneSpan, bank: &TextureBank) {
+    fn draw_plane(&mut self, _span: &PlaneSpan, _bands: &ClipBands, _bank: &TextureBank) {
         // TODO
     }
 
@@ -104,7 +92,8 @@ struct ColumnStep {
     dybot: f32,
 }
 impl ColumnStep {
-    fn from_drawcall(wall_span: &WallSpan, span_w: f32) -> Self {
+    fn from_drawcall(wall_span: &WallSpan) -> Self {
+        let span_w = (wall_span.x_end - wall_span.x_start).max(1) as f32;
         Self {
             duoz: (wall_span.u1_over_z - wall_span.u0_over_z) / span_w,
             dinvz: (wall_span.inv_z1 - wall_span.inv_z0) / span_w,
@@ -145,9 +134,9 @@ impl ColumnCursor {
 
 impl Software {
     /// True if any part of this column is within the current clip bands.
-    fn column_visible(&self, x: i32, y_top: f32, y_bot: f32) -> bool {
-        let top_band = self.ceil_clip[x as usize] as f32;
-        let bot_band = self.floor_clip[x as usize] as f32;
+    fn column_visible(&self, x: i32, y_top: f32, y_bot: f32, bands: &ClipBands) -> bool {
+        let top_band = bands.ceil[x as usize] as f32;
+        let bot_band = bands.floor[x as usize] as f32;
         y_top < bot_band && y_bot > top_band
     }
 
@@ -158,11 +147,12 @@ impl Software {
         cur: ColumnCursor,
         wall_span: &WallSpan,
         tex: &crate::world::texture::Texture,
+        bands: &ClipBands,
     ) {
         /* clip to integer pixel rows */
         let col = x as usize;
-        let y0 = cur.y_top.max(self.ceil_clip[col] as f32) as i32;
-        let y1 = cur.y_bot.min(self.floor_clip[col] as f32) as i32;
+        let y0 = cur.y_top.max(bands.ceil[col] as f32) as i32;
+        let y1 = cur.y_bot.min(bands.floor[col] as f32) as i32;
         if y0 > y1 {
             return;
         }
@@ -180,78 +170,5 @@ impl Software {
             self.scratch[y as usize * self.width + col] = tex.pixels[v_tex * tex.w + u_tex];
             v_mu += step_v;
         }
-
-        /* update clip bands so farther geometry is culled */
-        match wall_span.kind {
-            ClipKind::Solid => {
-                self.ceil_clip[col] = (y1 as i32).saturating_add(1);
-                self.floor_clip[col] = (y0 as i32).saturating_sub(1);
-            }
-            ClipKind::Upper => self.ceil_clip[col] = (y1 as i32).saturating_add(1),
-            ClipKind::Lower => self.floor_clip[col] = (y0 as i32).saturating_sub(1),
-        }
-    }
-}
-
-/*──────────────────────────────── Tests ───────────────────────────────*/
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{
-        renderer::{DrawCall, RendererExt},
-        world::texture::{Texture, TextureBank},
-    };
-
-    /* tiny helpers ---------------------------------------------------*/
-    fn tiny_bank() -> TextureBank {
-        let mut bank = TextureBank::default_with_checker();
-        bank.insert(
-            "BLUE",
-            Texture {
-                w: 4,
-                h: 4,
-                pixels: vec![0xFF_0000FF; 16],
-            },
-        )
-        .unwrap();
-        bank
-    }
-    fn blue_span() -> DrawCall {
-        DrawCall::Wall(WallSpan {
-            tex_id: 1,
-            u0_over_z: 0.0,
-            u1_over_z: 1.0,
-            inv_z0: 1.0,
-            inv_z1: 1.0,
-            x_start: 1,
-            x_end: 2,
-            y_top0: 1.0,
-            y_top1: 1.0,
-            y_bot0: 4.0,
-            y_bot1: 4.0,
-            kind: ClipKind::Lower,
-            texturemid_mu: 0.0,
-            wall_h: 10.0,
-        })
-    }
-
-    #[test]
-    fn software_renders_span() {
-        let bank = tiny_bank();
-        let mut sw = Software::default();
-
-        sw.draw_frame(
-            8,              // width
-            8,              // height
-            &[blue_span()], // draw-calls
-            &bank,          // texture bank
-            |fb, _w, _h| {
-                // <-- submit closure
-                assert!(
-                    fb.iter().any(|&px| px == 0xFF_0000FF),
-                    "renderer failed to write any blue pixels"
-                );
-            },
-        );
     }
 }

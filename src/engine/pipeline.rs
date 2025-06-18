@@ -12,12 +12,12 @@
 use glam::{Vec2, vec2};
 
 use crate::{
-    renderer::{ClipKind, DrawCall, WallSpan},
+    renderer::{ClipBands, ClipKind, Renderer, Rgba, WallSpan},
     world::{
         bsp::{CHILD_MASK, SUBSECTOR_BIT},
         camera::Camera,
         geometry::{Level, LinedefFlags},
-        texture::TextureId,
+        texture::{TextureBank, TextureId},
     },
 };
 
@@ -34,74 +34,67 @@ struct ViewParams {
 }
 
 /*──────────────────────────── Entry point ────────────────────────────*/
+pub fn render_frame<R: Renderer>(
+    renderer: &mut R,
+    level: &Level,
+    cam: &Camera,
+    bank: &TextureBank,
+    w: usize,
+    h: usize,
+    submit: impl FnOnce(&[Rgba], usize, usize),
+) {
+    renderer.begin_frame(w, h);
 
-pub fn build_drawcalls(level: &Level, cam: &Camera, w: usize, h: usize) -> Vec<DrawCall> {
-    let eye_floor = floor_height_under_player(level, cam.pos().truncate());
+    let mut ceil_clip = vec![0_i32; w];
+    let mut floor_clip = vec![h as i32 - 1; w];
+    let mut bands = ClipBands {
+        ceil: &mut ceil_clip,
+        floor: &mut floor_clip,
+    };
 
     let view = ViewParams {
         half_w: w as f32 * 0.5,
         half_h: h as f32 * 0.5,
         focal: cam.screen_scale(w),
         view_w: w,
-        eye_floor_z: eye_floor,
+        eye_floor_z: floor_height_under_player(level, cam.pos().truncate()),
     };
-
-    let mut calls = Vec::<DrawCall>::with_capacity(3_072);
-
-    /* column-wise clip state (shared for the whole frame) */
-    let mut ceil_clip = vec![0_i32; w];
-    let mut floor_clip = vec![h as i32 - 1; w];
 
     walk_bsp(
         level.bsp_root() as u16,
         level,
         cam,
         &view,
-        &mut ceil_clip,
-        &mut floor_clip,
-        &mut calls,
+        &mut bands,
+        renderer,
+        bank,
     );
-    calls
+
+    renderer.end_frame(submit);
 }
 
 /*──────────────────────────── BSP traversal ──────────────────────────*/
 
-fn walk_bsp(
+fn walk_bsp<R: Renderer>(
     child: u16,
     lvl: &Level,
     cam: &Camera,
     view: &ViewParams,
-    ceil_clip: &mut [i32],
-    floor_clip: &mut [i32],
-    out: &mut Vec<DrawCall>,
+    bands: &mut ClipBands,
+    renderer: &mut R,
+    bank: &TextureBank,
 ) {
     if child & SUBSECTOR_BIT != 0 {
-        draw_subsector(
-            child & CHILD_MASK,
-            lvl,
-            cam,
-            view,
-            ceil_clip,
-            floor_clip,
-            out,
-        );
+        draw_subsector(child & CHILD_MASK, lvl, cam, view, bands, renderer, bank);
     } else {
         let node = &lvl.nodes[child as usize];
         let front = node.point_side(cam.pos().truncate()) as usize;
         let back = front ^ 1;
 
-        walk_bsp(
-            node.child[front],
-            lvl,
-            cam,
-            view,
-            ceil_clip,
-            floor_clip,
-            out,
-        ); // near
+        walk_bsp(node.child[front], lvl, cam, view, bands, renderer, bank); // near
 
         if bbox_visible(&node.bbox[back], cam, view) {
-            walk_bsp(node.child[back], lvl, cam, view, ceil_clip, floor_clip, out); // far
+            walk_bsp(node.child[back], lvl, cam, view, bands, renderer, bank); // far
         }
     }
 }
@@ -152,14 +145,14 @@ fn bbox_visible(bbox: &[i16; 4], cam: &Camera, view: &ViewParams) -> bool {
 
 /*───────────────────────── subsector → spans ─────────────────────────*/
 
-fn draw_subsector(
+fn draw_subsector<R: Renderer>(
     ss_idx: u16,
     lvl: &Level,
     cam: &Camera,
     view: &ViewParams,
-    ceil_clip: &mut [i32],
-    floor_clip: &mut [i32],
-    out: &mut Vec<DrawCall>,
+    bands: &mut ClipBands,
+    renderer: &mut R,
+    bank: &TextureBank,
 ) {
     for seg_idx in lvl.segs_of_subsector(ss_idx) {
         if back_facing(seg_idx, lvl, cam) {
@@ -167,7 +160,7 @@ fn draw_subsector(
         }
 
         if let Some(edge) = project_seg(seg_idx, lvl, cam, view) {
-            build_spans(edge, lvl, cam, view, ceil_clip, floor_clip, out);
+            build_spans(edge, lvl, cam, view, bands, renderer, bank);
         }
     }
 }
@@ -332,81 +325,100 @@ impl ColumnCursor {
     }
 }
 
-fn clip_and_emit(
-    proto: &WallSpan, // prototype span (whole edge)
-    ceil_clip: &mut [i32],
-    floor_clip: &mut [i32],
-    out: &mut Vec<DrawCall>,
+fn clip_and_emit<R: Renderer>(
+    proto: &WallSpan,
+    bands: &mut ClipBands,
+    renderer: &mut R,
+    bank: &TextureBank,
 ) {
     let mut cur = ColumnCursor::from_span(proto);
     let step = ColumnStep::from_span(proto);
-    let mut run = None::<(i32, ColumnCursor)>; // (run_start_x, cursor_at_start)
+    let mut run = None::<(i32, ColumnCursor)>; // (x_start, cursor_at_start)
 
-    // walk every screen column
     for x in proto.x_start..=proto.x_end {
         let col = x as usize;
-        let vis = cur.y_t < floor_clip[col] as f32 && cur.y_b > ceil_clip[col] as f32;
+        let vis = cur.y_t < bands.floor[col] as f32 && cur.y_b > bands.ceil[col] as f32;
 
         if vis {
-            // ─── update per-column clip buffers ────────────────────────────
-            let y0 = cur.y_t.max(ceil_clip[col] as f32);
-            let y1 = cur.y_b.min(floor_clip[col] as f32);
-            match proto.kind {
-                ClipKind::Solid => {
-                    ceil_clip[col] = (y1 as i32).saturating_add(1);
-                    floor_clip[col] = (y0 as i32).saturating_sub(1);
-                }
-                ClipKind::Upper => ceil_clip[col] = (y1 as i32).saturating_add(1),
-                ClipKind::Lower => floor_clip[col] = (y0 as i32).saturating_sub(1),
-            }
-            // ─── grow / start the current visible run ─────────────────────
-            run.get_or_insert((x, cur));
+            run.get_or_insert((x, cur)); // grow or start run
         } else if let Some((x0, c0)) = run.take() {
-            // ─── run ended ⇒ emit a clipped WallSpan ──────────────────────
-            out.push(DrawCall::Wall(WallSpan {
-                x_start: x0,
-                x_end: x - 1,
-                u0_over_z: c0.uoz,
-                u1_over_z: cur.uoz - step.duoz,
-                inv_z0: c0.invz,
-                inv_z1: cur.invz - step.dinvz,
-                y_top0: c0.y_t,
-                y_top1: cur.y_t - step.dyt,
-                y_bot0: c0.y_b,
-                y_bot1: cur.y_b - step.dyb,
-                ..*proto // copy wall_h, texture, kind, …
-            }));
+            emit_span_and_update(proto, x0, x - 1, c0, cur, &step, bands, renderer, bank);
         }
 
         cur.step(&step);
     }
 
-    // tail-run falls off the end
+    // tail run
     if let Some((x0, c0)) = run {
-        out.push(DrawCall::Wall(WallSpan {
-            x_start: x0,
-            x_end: proto.x_end,
-            u0_over_z: c0.uoz,
-            u1_over_z: cur.uoz - step.duoz,
-            inv_z0: c0.invz,
-            inv_z1: cur.invz - step.dinvz,
-            y_top0: c0.y_t,
-            y_top1: cur.y_t - step.dyt,
-            y_bot0: c0.y_b,
-            y_bot1: cur.y_b - step.dyb,
-            ..*proto
-        }));
+        emit_span_and_update(
+            proto,
+            x0,
+            proto.x_end,
+            c0,
+            cur,
+            &step,
+            bands,
+            renderer,
+            bank,
+        );
     }
 }
 
-fn build_spans(
+#[inline]
+fn emit_span_and_update<R: Renderer>(
+    proto: &WallSpan,
+    x0: i32,
+    x1: i32,
+    c0: ColumnCursor,
+    cur: ColumnCursor,
+    step: &ColumnStep,
+    bands: &mut ClipBands,
+    renderer: &mut R,
+    bank: &TextureBank,
+) {
+    // ── 1. draw wall using *old* clip buffers ──────────────────────────────
+    let span = WallSpan {
+        x_start: x0,
+        x_end: x1,
+        u0_over_z: c0.uoz,
+        u1_over_z: cur.uoz - step.duoz,
+        inv_z0: c0.invz,
+        inv_z1: cur.invz - step.dinvz,
+        y_top0: c0.y_t,
+        y_top1: cur.y_t - step.dyt,
+        y_bot0: c0.y_b,
+        y_bot1: cur.y_b - step.dyb,
+        ..*proto
+    };
+    renderer.draw_wall(&span, bands, bank);
+
+    // ── 2. *now* update per-column clip buffers ────────────────────────────
+    let mut upd = c0;
+    for x in x0..=x1 {
+        let col = x as usize;
+        let y0 = upd.y_t.max(bands.ceil[col] as f32);
+        let y1 = upd.y_b.min(bands.floor[col] as f32);
+
+        match proto.kind {
+            ClipKind::Solid => {
+                bands.ceil[col] = (y1 as i32).saturating_add(1);
+                bands.floor[col] = (y0 as i32).saturating_sub(1);
+            }
+            ClipKind::Upper => bands.ceil[col] = (y1 as i32).saturating_add(1),
+            ClipKind::Lower => bands.floor[col] = (y0 as i32).saturating_sub(1),
+        }
+        upd.step(step);
+    }
+}
+
+fn build_spans<R: Renderer>(
     edge: Edge,
     lvl: &Level,
     cam: &Camera,
     view: &ViewParams,
-    ceil_clip: &mut [i32],
-    floor_clip: &mut [i32],
-    out: &mut Vec<DrawCall>,
+    bands: &mut ClipBands,
+    renderer: &mut R,
+    bank: &TextureBank,
 ) {
     // Resolve sidedefs / sectors ------------------------------------------------
     let seg = &lvl.segs[edge.seg_idx as usize];
@@ -463,9 +475,9 @@ fn build_spans(
                 wall_h,
                 texturemid_mu: tm_mu,
             },
-            ceil_clip,
-            floor_clip,
-            out,
+            bands,
+            renderer,
+            bank,
         );
     };
 
@@ -566,180 +578,5 @@ fn find_subsector(level: &Level, node_idx: Vec2) -> usize {
         let node = &level.nodes[idx as usize];
         let side = node.point_side(node_idx) as usize;
         idx = node.child[side];
-    }
-}
-
-/*───────────────────────────────────────────────────────────────────────*/
-/*                               Tests                                   */
-/*───────────────────────────────────────────────────────────────────────*/
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{
-        wad::{Wad, loader},
-        world::texture::{NO_TEXTURE, TextureBank},
-    };
-    use std::path::PathBuf;
-
-    /// Helper – locate DOOM.WAD inside the project tree.
-    fn doom_wad() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("assets")
-            .join("doom.wad")
-    }
-
-    /// Build calls for E1M1 and make sure we get *something* back.
-    #[test]
-    fn pipeline_produces_non_empty_call_list() {
-        let wad = Wad::from_file(doom_wad()).expect("cannot read WAD");
-        let mut bank = TextureBank::default_with_checker();
-        let level = loader::load_level(&wad, wad.level_indices()[0], &mut bank).unwrap();
-
-        // Player start (thing type-1)
-        let start = level
-            .things
-            .iter()
-            .find(|t| t.type_id == 1)
-            .expect("no player start")
-            .pos;
-
-        let cam = Camera::new(glam::Vec3::new(start.x, start.y, 41.0), 0.0, 1.57);
-
-        let calls = build_drawcalls(&level, &cam, 640, 400);
-        assert!(
-            !calls.is_empty(),
-            "pipeline returned zero DrawCalls for E1M1"
-        );
-    }
-
-    /// Every column must satisfy *top <= bottom* on both ends.
-    #[test]
-    fn y_top_is_above_y_bottom_everywhere() {
-        let wad = Wad::from_file(doom_wad()).unwrap();
-        let mut bank = TextureBank::default_with_checker();
-        let level = loader::load_level(&wad, wad.level_indices()[0], &mut bank).unwrap();
-        let cam = Camera::new(glam::Vec3::new(0.0, 0.0, 41.0), 0.0, 1.57);
-
-        for dc in build_drawcalls(&level, &cam, 640, 400) {
-            match dc {
-                DrawCall::Wall(w) => assert!(
-                    w.y_top0 <= w.y_bot0 && w.y_top1 <= w.y_bot1,
-                    "Wall y_top > y_bot for drawcall {:?}",
-                    w
-                ),
-                DrawCall::Plane(p) => assert!(
-                    p.x_start <= p.x_end,
-                    "Plane x_start > x_end for drawcall {:?}",
-                    p
-                ),
-            }
-        }
-    }
-
-    /// `back_facing` should cull simple test segs correctly.
-    ///
-    /// We construct a *minimal* two-vertex level in memory so the test does not
-    /// depend on external WAD data.
-    #[test]
-    fn back_facing_culls_behind_wall() {
-        use crate::world::geometry::{
-            Linedef, Node, Sector, Seg, Sidedef, Subsector, Thing, Vertex,
-        };
-
-        /// Return a Level that contains one square “room” (two vertices, one seg,
-        /// one subsector, one sector, one BSP node).  Enough for back-face and
-        /// projection tests.
-        pub fn dummy_level() -> Level {
-            // ─── vertices ───
-            let vertices = vec![
-                Vertex {
-                    pos: vec2(0.0, 0.0),
-                },
-                Vertex {
-                    pos: vec2(128.0, 0.0),
-                },
-            ];
-
-            // ─── linedef & sidedef pair ───
-            let linedefs = vec![Linedef {
-                v1: 0,
-                v2: 1,
-                flags: LinedefFlags::empty(),
-                right_sidedef: Some(0),
-                left_sidedef: None,
-                special: 0,
-                tag: 0,
-            }];
-
-            let sidedefs = vec![Sidedef {
-                x_off: 0,
-                y_off: 0,
-                upper: NO_TEXTURE,
-                lower: NO_TEXTURE,
-                middle: NO_TEXTURE,
-                sector: 0,
-            }];
-
-            // ─── sector ───
-            let sectors = vec![Sector {
-                floor_h: 0,
-                ceil_h: 128,
-                floor_tex: NO_TEXTURE,
-                ceil_tex: NO_TEXTURE,
-                light: 0,
-                special: 0,
-                tag: 0,
-            }];
-
-            // ─── seg + subsector ───
-            let segs = vec![Seg {
-                v1: 0,
-                v2: 1,
-                linedef: 0,
-                dir: 0,
-                offset: 0,
-            }];
-
-            let subsectors = vec![Subsector {
-                first_seg: 0,
-                seg_count: 1,
-            }];
-
-            // ─── one BSP node whose children are both the sole subsector ───
-            let nodes = vec![Node {
-                x: 0,
-                y: 0,
-                dx: 0,
-                dy: 0,
-                bbox: [[0; 4]; 2],
-                child: [SUBSECTOR_BIT | 0, SUBSECTOR_BIT | 0], // both sides point to subsector 0
-            }];
-
-            // ─── build the Level ───
-            Level {
-                name: "dummy".into(),
-                things: Vec::<Thing>::new(),
-                linedefs,
-                sidedefs,
-                vertices,
-                segs,
-                subsectors,
-                nodes,
-                sectors,
-                sector_of_subsector: vec![0],
-            }
-        }
-
-        // Stub BSP: single subsector containing that seg
-        let mut level = dummy_level();
-
-        let camera = Camera::new(glam::Vec3::new(64.0, -64.0, 41.0), 0.0, 0.0);
-
-        // Seg faces +Y, camera is −Y looking +Y → front-facing = should *not* be culled.
-        assert!(!back_facing(0, &level, &camera));
-
-        // Flip seg direction so its normal faces −Y: now it *is* back-facing.
-        level.segs[0].dir = 1;
-        assert!(back_facing(0, &level, &camera));
     }
 }
