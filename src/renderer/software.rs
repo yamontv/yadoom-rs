@@ -71,8 +71,34 @@ impl Renderer for Software {
         }
     }
 
-    fn draw_plane(&mut self, _span: &PlaneSpan, _bands: &ClipBands, _bank: &TextureBank) {
-        // TODO: floor / ceiling rendering
+    fn draw_plane(&mut self, span: &PlaneSpan, _bands: &ClipBands, bank: &TextureBank) {
+        let tex = bank
+            .texture(span.tex_id)
+            .unwrap_or_else(|_| bank.texture(NO_TEXTURE).unwrap());
+
+        // Linear interpolation across the horizontal run
+        let w = (span.x_end - span.x_start).max(1) as f32;
+        let duoz = (span.u1_over_z - span.u0_over_z) / w;
+        let dvoz = (span.v1_over_z - span.v0_over_z) / w;
+        let dinvz = (span.inv_z1 - span.inv_z0) / w;
+
+        let mut uoz = span.u0_over_z;
+        let mut voz = span.v0_over_z;
+        let mut invz = span.inv_z0;
+
+        let fb_y = span.y as usize;
+        let row = &mut self.scratch[fb_y * self.width..][..self.width];
+
+        for x in span.x_start..=span.x_end {
+            let col = x as usize;
+            let u = ((uoz / invz) as i32).rem_euclid(tex.w as i32) as usize;
+            let v = ((voz / invz) as i32).rem_euclid(tex.h as i32) as usize;
+            row[col] = tex.pixels[v * tex.w + u];
+
+            uoz += duoz;
+            voz += dvoz;
+            invz += dinvz;
+        }
     }
 
     /// Hand the finished frame to the caller.

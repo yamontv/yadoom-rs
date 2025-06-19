@@ -13,3 +13,15 @@ pub struct Viewer {
     pub focal: f32,
     pub eye_floor_z: f32, // height of the eye above the sector floor
 }
+
+/// Everything the clipping / span builder needs for one visible edge.
+#[derive(Clone, Copy)]
+pub struct Edge {
+    pub x_l: i32,
+    pub x_r: i32,
+    pub invz_l: f32,
+    pub invz_r: f32,
+    pub uoz_l: f32,
+    pub uoz_r: f32,
+    pub seg_idx: u16,
+}

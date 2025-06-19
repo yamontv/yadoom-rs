@@ -17,8 +17,10 @@
 use glam::{Vec2, vec2};
 
 use crate::{
-    engine::types::{Screen, Viewer},
-    engine::walls::render_seg,
+    engine::project::project_seg,
+    engine::types::{Edge, Screen, Viewer},
+    engine::visplane::PlaneCollector,
+    engine::walls::build_spans,
     renderer::{ClipBands, Renderer, Rgba},
     world::{
         bsp::{CHILD_MASK, SUBSECTOR_BIT},
@@ -43,6 +45,10 @@ pub fn render_frame<R: Renderer>(
 ) {
     // 1 ─ clear or re‑allocate the renderer’s scratch framebuffer
     renderer.begin_frame(w, h);
+
+    // initialise plane collector
+    let mut planes = PlaneCollector::new();
+    planes.begin_frame(w, h);
 
     // 2 ─ allocate per‑column clip bands (fully open at start of frame)
     let mut ceil = vec![0_i32; w];
@@ -74,9 +80,13 @@ pub fn render_frame<R: Renderer>(
         &mut bands,
         renderer,
         bank,
+        &mut planes,
     );
 
-    // 5 ─ hand the filled frame to the caller (window, video encoder, …)
+    // 5 ─ draw the flats *behind* everything else
+    planes.draw_all(renderer, level, cam, &screen, &view, bank);
+
+    // 6 ─ hand the filled frame to the caller (window, video encoder, …)
     renderer.end_frame(submit);
 }
 
@@ -93,6 +103,7 @@ fn walk_bsp<R: Renderer>(
     bands: &mut ClipBands,
     renderer: &mut R,
     bank: &TextureBank,
+    planes: &mut PlaneCollector,
 ) {
     // Leaf? ──────
     if child & SUBSECTOR_BIT != 0 {
@@ -105,6 +116,7 @@ fn walk_bsp<R: Renderer>(
             bands,
             renderer,
             bank,
+            planes,
         );
         return;
     }
@@ -124,6 +136,7 @@ fn walk_bsp<R: Renderer>(
         bands,
         renderer,
         bank,
+        planes,
     );
 
     // … far side only if its bounding box might be visible.
@@ -137,6 +150,7 @@ fn walk_bsp<R: Renderer>(
             bands,
             renderer,
             bank,
+            planes,
         );
     }
 }
@@ -152,7 +166,12 @@ fn draw_subsector<R: Renderer>(
     bands: &mut ClipBands,
     renderer: &mut R,
     bank: &TextureBank,
+    planes: &mut PlaneCollector,
 ) {
+    /* --- draw all walls, track horizontal coverage ----------------------- */
+    let mut min_x = screen.w as i32; // start outside valid range
+    let mut max_x = -1i32;
+
     for seg_idx in lvl.segs_of_subsector(ss_idx) {
         // Back‑face cull in *world* space: if the viewer is on the back side
         // of the SEG’s plane, skip it.
@@ -160,10 +179,50 @@ fn draw_subsector<R: Renderer>(
             continue;
         }
 
-        // Forward to the wall module – from here on, clipping and span
-        // construction is handled by `walls`.
-        render_seg(seg_idx, lvl, cam, screen, view, bands, renderer, bank);
+        if let Some(edge) = project_seg(seg_idx, lvl, cam, screen, view) {
+            build_spans(edge, lvl, cam, screen, view, bands, renderer, bank);
+            min_x = min_x.min(edge.x_l);
+            max_x = max_x.max(edge.x_r);
+        }
     }
+
+    /* --- nothing hit the screen?  then nothing to do --------------------- */
+    if max_x < min_x {
+        return;
+    }
+
+    // ---------------- sector of this subsector ----------------
+    let ss = &lvl.subsectors[ss_idx as usize];
+    let seg0 = &lvl.segs[ss.first_seg as usize];
+    let ld0 = &lvl.linedefs[seg0.linedef as usize];
+
+    // pick the front-facing sidedef of seg0 (right for dir==0, else left)
+    let sd_idx = if seg0.dir == 0 {
+        ld0.right_sidedef
+    } else {
+        ld0.left_sidedef
+    }
+    .expect("first SEG of subsector must have a sidedef");
+
+    let sec = &lvl.sectors[lvl.sidedefs[sd_idx as usize].sector as usize];
+
+    // On-screen horizontal extent of the subsector (reuse the min/max from SEGs)
+    // let (min_x, max_x) = /* ← computed while iterating SEGs, store in locals */;
+
+    planes.add_subsector_plane(
+        (sec.floor_h as f32) - view.eye_floor_z, // dz below eye
+        sec.floor_tex,
+        true,
+        bands,
+        min_x..=max_x,
+    );
+    planes.add_subsector_plane(
+        view.eye_floor_z - (sec.ceil_h as f32), // dz above eye
+        sec.ceil_tex,
+        false,
+        bands,
+        min_x..=max_x,
+    );
 }
 
 /*──────────────────────────── Utilities ───────────────────────────────*/
