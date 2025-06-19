@@ -12,7 +12,7 @@
 //! **Current limitation**: only textured walls.  Flats, sprites, dynamic
 //! lights will extend [`DrawCall`] later.
 
-use crate::world::texture::{TextureBank, TextureId};
+use crate::world::texture::{NO_TEXTURE, TextureBank, TextureId};
 
 /// Pixel format of the software frame-buffer (0x00RRGGBB).
 pub type Rgba = u32;
@@ -50,6 +50,26 @@ pub struct WallSpan {
 
     pub wall_h: f32,        // ceiling_z - floor_z in map units
     pub texturemid_mu: f32, // (ceil_h − eyeZ) + y_off     in map units
+}
+impl Default for WallSpan {
+    fn default() -> Self {
+        Self {
+            x_start: 0,
+            x_end: 0,
+            u0_over_z: 0.0,
+            u1_over_z: 0.0,
+            inv_z0: 1.0,
+            inv_z1: 1.0,
+            y_top0: 0.0,
+            y_top1: 0.0,
+            y_bot0: 0.0,
+            y_bot1: 0.0,
+            wall_h: 64.0,
+            texturemid_mu: 0.0,
+            tex_id: NO_TEXTURE,
+            kind: ClipKind::Solid,
+        }
+    }
 }
 
 /// Horizontal span along one scan-line (y) that shares the same
