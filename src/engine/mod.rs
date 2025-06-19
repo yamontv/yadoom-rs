@@ -1,5 +1,5 @@
 mod bsp;
-mod project;
+mod projection;
 mod types;
 mod visplane;
 mod walls;

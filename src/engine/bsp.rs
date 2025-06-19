@@ -17,8 +17,8 @@
 use glam::{Vec2, vec2};
 
 use crate::{
-    engine::project::project_seg,
-    engine::types::{Edge, Screen, Viewer},
+    engine::projection::project_seg,
+    engine::types::{Screen, Viewer},
     engine::visplane::PlaneCollector,
     engine::walls::build_spans,
     renderer::{ClipBands, Renderer, Rgba},
