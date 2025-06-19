@@ -17,15 +17,6 @@ use crate::world::texture::{NO_TEXTURE, TextureBank, TextureId};
 /// Pixel format of the software frame-buffer (0x00RRGGBB).
 pub type Rgba = u32;
 
-/// Tells the draw routine whether this is a solid wall slice,
-/// an upper-portal slice (ceiling of back sector), or a lower-portal slice.
-#[derive(Copy, Clone, Debug)]
-pub enum ClipKind {
-    Solid,
-    Upper,
-    Lower,
-}
-
 /// Non-clipped information for one vertical wall slice batch.
 /// `x_start ..= x_end` maps to screen columns.
 #[derive(Clone, Debug)]
@@ -46,8 +37,6 @@ pub struct WallSpan {
     pub y_bot0: f32, // floor   at x_start
     pub y_bot1: f32, // floor   at x_end
 
-    pub kind: ClipKind,
-
     pub wall_h: f32,        // ceiling_z - floor_z in map units
     pub texturemid_mu: f32, // (ceil_h − eyeZ) + y_off     in map units
 }
@@ -67,7 +56,6 @@ impl Default for WallSpan {
             wall_h: 64.0,
             texturemid_mu: 0.0,
             tex_id: NO_TEXTURE,
-            kind: ClipKind::Solid,
         }
     }
 }

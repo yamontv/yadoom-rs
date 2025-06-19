@@ -1,7 +1,7 @@
 use minifb::{Key, Window, WindowOptions};
 use std::time::{Duration, Instant};
 use yadoom_rs::{
-    engine::pipeline,
+    engine::render_frame,
     renderer::software::Software,
     wad::{Wad, loader},
     world::{camera::Camera, texture::TextureBank},
@@ -63,7 +63,7 @@ fn main() -> anyhow::Result<()> {
         cam.step(dy, dx);
 
         /* draw */
-        pipeline::render_frame(&mut sw, &level, &cam, &bank, W, H, |fb, w, h| {
+        render_frame(&mut sw, &level, &cam, &bank, W, H, |fb, w, h| {
             // ─────────── accumulate & report every ~3 s ────────────────────
             acc_time += t0.elapsed();
             acc_frames += 1;

@@ -1,185 +1,12 @@
-//! ---------------------------------------------------------------------------
-//! BSP → DrawCalls for the software column renderer
-//!
-//! * Walks the BSP **front-to-back** so the later span-drawer can cull overdraw
-//!   with a per-column clip buffer.
-//! * Emits **one DrawCall per wall span** (upper portal, lower portal, solid).
-//! * Computes perspective-correct u/z once per edge.
-//!
-//! TODO: visplanes, sprites, lighting tables
-//! ---------------------------------------------------------------------------
-
-use glam::{Vec2, vec2};
-
 use crate::{
-    renderer::{ClipBands, ClipKind, Renderer, Rgba, WallSpan},
+    engine::types::{Screen, Viewer},
+    renderer::{ClipBands, Renderer, WallSpan},
     world::{
-        bsp::{CHILD_MASK, SUBSECTOR_BIT},
         camera::Camera,
         geometry::{Level, LinedefFlags},
         texture::{TextureBank, TextureId},
     },
 };
-
-/*──────────────────────────── View helpers ───────────────────────────*/
-
-/// Everything the renderer needs to turn world units into screen pixels.
-#[derive(Clone, Copy)]
-struct ViewParams {
-    half_w: f32,
-    half_h: f32,
-    focal: f32,
-    view_w: usize,
-    eye_floor_z: f32, // player’s Z on the floor under their feet
-}
-
-/*──────────────────────────── Entry point ────────────────────────────*/
-pub fn render_frame<R: Renderer>(
-    renderer: &mut R,
-    level: &Level,
-    cam: &Camera,
-    bank: &TextureBank,
-    w: usize,
-    h: usize,
-    submit: impl FnOnce(&[Rgba], usize, usize),
-) {
-    renderer.begin_frame(w, h);
-
-    let mut ceil_clip = vec![0_i32; w];
-    let mut floor_clip = vec![h as i32 - 1; w];
-    let mut bands = ClipBands {
-        ceil: &mut ceil_clip,
-        floor: &mut floor_clip,
-    };
-
-    let view = ViewParams {
-        half_w: w as f32 * 0.5,
-        half_h: h as f32 * 0.5,
-        focal: cam.screen_scale(w),
-        view_w: w,
-        eye_floor_z: floor_height_under_player(level, cam.pos().truncate()),
-    };
-
-    walk_bsp(
-        level.bsp_root() as u16,
-        level,
-        cam,
-        &view,
-        &mut bands,
-        renderer,
-        bank,
-    );
-
-    renderer.end_frame(submit);
-}
-
-/*──────────────────────────── BSP traversal ──────────────────────────*/
-
-fn walk_bsp<R: Renderer>(
-    child: u16,
-    lvl: &Level,
-    cam: &Camera,
-    view: &ViewParams,
-    bands: &mut ClipBands,
-    renderer: &mut R,
-    bank: &TextureBank,
-) {
-    if child & SUBSECTOR_BIT != 0 {
-        draw_subsector(child & CHILD_MASK, lvl, cam, view, bands, renderer, bank);
-    } else {
-        let node = &lvl.nodes[child as usize];
-        let front = node.point_side(cam.pos().truncate()) as usize;
-        let back = front ^ 1;
-
-        walk_bsp(node.child[front], lvl, cam, view, bands, renderer, bank); // near
-
-        if bbox_visible(&node.bbox[back], cam, view) {
-            walk_bsp(node.child[back], lvl, cam, view, bands, renderer, bank); // far
-        }
-    }
-}
-
-/// Fast conservative test: returns **true** if any part of `bbox`
-/// can project inside the screen rectangle.
-///
-/// Doom’s original uses angle tables; here we re-implement it by
-/// transforming the four corners into camera space and checking their
-/// projected X range.
-fn bbox_visible(bbox: &[i16; 4], cam: &Camera, view: &ViewParams) -> bool {
-    // Doom stores (top, bottom, left, right) – convert to floats
-    let (mut x1, mut x2) = (bbox[2] as f32, bbox[3] as f32); // left, right
-    let (mut y1, mut y2) = (bbox[1] as f32, bbox[0] as f32); // bottom, top
-    if x1 > x2 {
-        core::mem::swap(&mut x1, &mut x2);
-    }
-    if y1 > y2 {
-        core::mem::swap(&mut y1, &mut y2);
-    }
-
-    const CORNERS: [(usize, usize); 4] = [(0, 0), (0, 1), (1, 0), (1, 1)];
-    let near = cam.near();
-    let mut min_sx = f32::INFINITY;
-    let mut max_sx = -f32::INFINITY;
-    let mut any_in_front = false;
-
-    for (ix, iy) in CORNERS {
-        let p_world = vec2(if ix == 0 { x1 } else { x2 }, if iy == 0 { y1 } else { y2 });
-        let p_cam = cam.to_cam(p_world);
-        if p_cam.y <= near {
-            continue;
-        } // behind near plane
-        any_in_front = true;
-        let sx = view.half_w + p_cam.x * view.focal / p_cam.y;
-        min_sx = min_sx.min(sx);
-        max_sx = max_sx.max(sx);
-    }
-    if !any_in_front {
-        return false;
-    } // whole box behind us
-    // off-screen to the left or right?
-    if max_sx < 0.0 || min_sx >= view.view_w as f32 {
-        return false;
-    }
-    true
-}
-
-/*───────────────────────── subsector → spans ─────────────────────────*/
-
-fn draw_subsector<R: Renderer>(
-    ss_idx: u16,
-    lvl: &Level,
-    cam: &Camera,
-    view: &ViewParams,
-    bands: &mut ClipBands,
-    renderer: &mut R,
-    bank: &TextureBank,
-) {
-    for seg_idx in lvl.segs_of_subsector(ss_idx) {
-        if back_facing(seg_idx, lvl, cam) {
-            continue;
-        }
-
-        if let Some(edge) = project_seg(seg_idx, lvl, cam, view) {
-            build_spans(edge, lvl, cam, view, bands, renderer, bank);
-        }
-    }
-}
-
-/*──────────────────────── back-face cull ─────────────────────────────*/
-
-fn back_facing(seg_idx: u16, lvl: &Level, cam: &Camera) -> bool {
-    let seg = &lvl.segs[seg_idx as usize];
-    let a = lvl.vertices[seg.v1 as usize].pos;
-    let b = lvl.vertices[seg.v2 as usize].pos;
-    let wall = b - a;
-    let mut n = vec2(wall.y, -wall.x); // right-hand normal
-    if seg.dir != 0 {
-        n = -n;
-    } // flip for left-hand segs
-    n.dot(cam.pos().truncate() - a) <= 0.0 // ≤ 0 ⇒ facing away
-}
-
-/*───────────────────── Geometry → screen X band ─────────────────────*/
 
 /// Everything the clipping / span builder needs for one visible edge.
 struct Edge {
@@ -192,7 +19,28 @@ struct Edge {
     seg_idx: u16,
 }
 
-fn project_seg(seg_idx: u16, lvl: &Level, cam: &Camera, view: &ViewParams) -> Option<Edge> {
+pub fn render_seg<R: Renderer>(
+    seg_idx: u16,
+    lvl: &Level,
+    cam: &Camera,
+    screen: &Screen,
+    view: &Viewer,
+    bands: &mut ClipBands,
+    renderer: &mut R,
+    bank: &TextureBank,
+) {
+    if let Some(edge) = project_seg(seg_idx, lvl, cam, screen, view) {
+        build_spans(edge, lvl, cam, screen, view, bands, renderer, bank);
+    }
+}
+
+fn project_seg(
+    seg_idx: u16,
+    lvl: &Level,
+    cam: &Camera,
+    screen: &Screen,
+    view: &Viewer,
+) -> Option<Edge> {
     let seg = &lvl.segs[seg_idx as usize];
     // World endpoints → camera space
     let v1 = lvl.vertices[seg.v1 as usize].pos;
@@ -210,9 +58,9 @@ fn project_seg(seg_idx: u16, lvl: &Level, cam: &Camera, view: &ViewParams) -> Op
     }
 
     // Project to screen X
-    let mut sx1 = view.half_w + p1.x * view.focal / p1.y;
-    let mut sx2 = view.half_w + p2.x * view.focal / p2.y;
-    if (sx1 < 0.0 && sx2 < 0.0) || (sx1 >= view.half_w * 2.0 && sx2 >= view.half_w * 2.0) {
+    let mut sx1 = screen.half_w + p1.x * view.focal / p1.y;
+    let mut sx2 = screen.half_w + p2.x * view.focal / p2.y;
+    if (sx1 < 0.0 && sx2 < 0.0) || (sx1 >= screen.half_w * 2.0 && sx2 >= screen.half_w * 2.0) {
         return None; // completely off-screen
     }
 
@@ -224,7 +72,7 @@ fn project_seg(seg_idx: u16, lvl: &Level, cam: &Camera, view: &ViewParams) -> Op
     }
 
     let x_l = sx1.max(0.0) as i32;
-    let x_r = sx2.min(view.view_w as f32 - 1.0) as i32;
+    let x_r = sx2.min(screen.w as f32 - 1.0) as i32;
     if x_l >= x_r {
         return None;
     }
@@ -325,8 +173,18 @@ impl ColumnCursor {
     }
 }
 
-pub fn emit_and_clip<R: Renderer>(
+/// Tells the draw routine whether this is a solid wall slice,
+/// an upper-portal slice (ceiling of back sector), or a lower-portal slice.
+#[derive(Clone, Copy)]
+enum ClipKind {
+    Solid,
+    Upper,
+    Lower,
+}
+
+fn emit_and_clip<R: Renderer>(
     proto: &WallSpan,
+    kind: ClipKind,
     bands: &mut ClipBands,
     renderer: &mut R,
     bank: &TextureBank,
@@ -350,7 +208,7 @@ pub fn emit_and_clip<R: Renderer>(
         let y1 = cur.y_b.min(old_floor as f32).floor() as i32;
 
         if y0 <= y1 {
-            match proto.kind {
+            match kind {
                 ClipKind::Solid => {
                     bands.ceil[col] = (y1 as i32).saturating_add(1);
                     bands.floor[col] = (y0 as i32).saturating_sub(1);
@@ -368,7 +226,8 @@ fn build_spans<R: Renderer>(
     edge: Edge,
     lvl: &Level,
     cam: &Camera,
-    view: &ViewParams,
+    screen: &Screen,
+    view: &Viewer,
     bands: &mut ClipBands,
     renderer: &mut R,
     bank: &TextureBank,
@@ -419,15 +278,15 @@ fn build_spans<R: Renderer>(
                 inv_z1: edge.invz_r,
                 x_start: edge.x_l,
                 x_end: edge.x_r,
-                y_top0: view.half_h - (ceil_h - eye_z) * view.focal * edge.invz_l,
-                y_top1: view.half_h - (ceil_h - eye_z) * view.focal * edge.invz_r,
-                y_bot0: view.half_h - (floor_h - eye_z) * view.focal * edge.invz_l,
-                y_bot1: view.half_h - (floor_h - eye_z) * view.focal * edge.invz_r,
-                kind,
+                y_top0: screen.half_h - (ceil_h - eye_z) * view.focal * edge.invz_l,
+                y_top1: screen.half_h - (ceil_h - eye_z) * view.focal * edge.invz_r,
+                y_bot0: screen.half_h - (floor_h - eye_z) * view.focal * edge.invz_l,
+                y_bot1: screen.half_h - (floor_h - eye_z) * view.focal * edge.invz_r,
                 /* tiling */
                 wall_h,
                 texturemid_mu: tm_mu,
             },
+            kind,
             bands,
             renderer,
             bank,
@@ -500,36 +359,5 @@ fn texturemid(
                 (floor_h - eye_z) + y_off
             }
         }
-    }
-}
-
-/*──────────────────── floor height under the player ──────────────────*/
-
-/// Find which subsector the player stands in and return its sector’s floor Z.
-fn floor_height_under_player(level: &Level, pos: Vec2) -> f32 {
-    let ss_idx = find_subsector(level, pos);
-    let ss = &level.subsectors[ss_idx];
-    let seg = &level.segs[ss.first_seg as usize];
-    let ld = &level.linedefs[seg.linedef as usize];
-    let sd_idx = if seg.dir == 0 {
-        ld.right_sidedef
-    } else {
-        ld.left_sidedef
-    }
-    .expect("subsector seg must have a sidedef");
-    let sector = &level.sectors[level.sidedefs[sd_idx as usize].sector as usize];
-    sector.floor_h as f32
-}
-
-fn find_subsector(level: &Level, node_idx: Vec2) -> usize {
-    // BSP walk until we hit a subsector leaf
-    let mut idx = level.bsp_root() as u16;
-    loop {
-        if idx & SUBSECTOR_BIT != 0 {
-            return (idx & CHILD_MASK) as usize;
-        }
-        let node = &level.nodes[idx as usize];
-        let side = node.point_side(node_idx) as usize;
-        idx = node.child[side];
     }
 }
