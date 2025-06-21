@@ -1,7 +1,7 @@
 use minifb::{Key, Window, WindowOptions};
 use std::time::{Duration, Instant};
 use yadoom_rs::{
-    engine::render_frame,
+    engine::Engine,
     renderer::software::Software,
     wad::{Wad, loader},
     world::{camera::Camera, texture::TextureBank},
@@ -19,16 +19,22 @@ fn main() -> anyhow::Result<()> {
     let map_idx: usize = args.next().unwrap_or_else(|| "0".into()).parse()?;
     let wad = Wad::from_file(&wad_path)?;
 
-    let mut bank = TextureBank::default_with_checker();
-    let mut level = loader::load_level(&wad, wad.level_indices()[map_idx], &mut bank)?;
+    let mut texture_bank = TextureBank::default_with_checker();
+    let mut level = loader::load_level(&wad, wad.level_indices()[map_idx], &mut texture_bank)?;
     level.finalise_bsp();
 
     let player = level.things.iter().find(|t| t.type_id == 1).unwrap();
-    let mut cam = Camera::new(player.pos.extend(41.0), player.angle, 110_f32.to_radians());
+    let camera = Camera::new(player.pos.extend(41.0), player.angle, 90_f32.to_radians());
+    // let camera = Camera::new(
+    //     glam::Vec3::new(2933.7625, -2822.0237, 41.0),
+    //     5.0714335,
+    //     90_f32.to_radians(),
+    // );
 
-    let mut win = Window::new("Software Doom viewer", W, H, WindowOptions::default())?;
+    let mut engine = Engine::new(Software::default(), level, camera, texture_bank, W, H);
+
+    let mut win = Window::new("Rust Doom Software Render", W, H, WindowOptions::default())?;
     win.set_target_fps(35);
-    let mut sw = Software::default();
 
     // ────────────────── benchmarking state ──────────────────────────────
     let mut acc_time = Duration::ZERO; // cumulated render time
@@ -59,11 +65,13 @@ fn main() -> anyhow::Result<()> {
             yaw -= TURN * DT;
         }
 
-        cam.turn(yaw);
-        cam.step(dy, dx);
+        engine.camera.turn(yaw);
+        engine.camera.step(dy, dx);
+
+        // dbg!(engine.camera);
 
         /* draw */
-        render_frame(&mut sw, &level, &cam, &bank, W, H, |fb, w, h| {
+        engine.render_frame(|fb, w, h| {
             // ─────────── accumulate & report every ~3 s ────────────────────
             acc_time += t0.elapsed();
             acc_frames += 1;

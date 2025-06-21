@@ -7,7 +7,7 @@ use glam::{Vec2, Vec3, vec2};
 #[derive(Clone, Copy, Debug)]
 pub struct Camera {
     pos: Vec3, // x,y in map-units; z = eye height above floor
-    yaw: f32,  // radians (0 = east, counter-clockwise)
+    pub yaw: f32,  // radians (0 = east, counter-clockwise)
     fov: f32,  // horizontal FoV (radians, typical 90–110°)
 }
 

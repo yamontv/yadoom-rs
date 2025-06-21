@@ -1,7 +1,10 @@
-mod bsp;
+// mod bsp;
+// mod bsp2;
+mod engine;
+mod planes;
 mod projection;
 mod types;
-mod visplane;
-mod walls;
+// mod walls;
+mod subsector;
 
-pub use bsp::render_frame; // <— unchanged public API
+pub use engine::Engine;

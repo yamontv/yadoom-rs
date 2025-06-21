@@ -25,20 +25,21 @@ pub const SUBSECTOR_BIT: u16 = 0x8000;
 impl Level {
     /// Index of the BSP root (`nodes.len()-1` in Doom).
     #[inline(always)]
-    pub fn bsp_root(&self) -> usize {
-        self.nodes.len() - 1
+    pub fn bsp_root(&self) -> u16 {
+        assert!(self.nodes.len() != 0);
+        (self.nodes.len() - 1) as u16
     }
 
     /// Walk the BSP and return the subsector id containing `p`.
     pub fn locate_subsector(&self, p: Vec2) -> u16 {
         let mut idx = self.bsp_root();
         loop {
-            let node = &self.nodes[idx];
+            let node = &self.nodes[idx as usize];
             let child = node.child[node.point_side(p) as usize];
             if child & SUBSECTOR_BIT != 0 {
                 return child & CHILD_MASK;
             }
-            idx = child as usize;
+            idx = child;
         }
     }
 
@@ -143,7 +144,7 @@ mod tests {
         let wad = Wad::from_file(doom_wad()).unwrap();
         let mut bank = TextureBank::default_with_checker();
         let lvl = loader::load_level(&wad, wad.level_indices()[0], &mut bank).unwrap();
-        let root = &lvl.nodes[lvl.bsp_root()];
+        let root = &lvl.nodes[lvl.bsp_root() as usize];
 
         for side in 0..=1 {
             let bb = root.bbox(side);

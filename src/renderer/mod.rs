@@ -73,18 +73,16 @@ pub struct PlaneSpan {
     pub inv_z0: f32,
     pub inv_z1: f32,
     /* screen extents */
-    pub y: i32,
-    pub x_start: i32,
-    pub x_end: i32,
-    /* is this the floor or the ceiling? */
-    pub is_floor: bool,
+    pub y: u16,
+    pub x_start: u16,
+    pub x_end: u16,
 }
 
 /// Reference to the shared front-to-back clip state.
 /// Software back-ends read it, GPU ones will ignore it.
-pub struct ClipBands<'a> {
-    pub ceil: &'a mut [i32],
-    pub floor: &'a mut [i32],
+pub struct ClipBands {
+    pub ceil: Vec<i16>,
+    pub floor: Vec<i16>,
 }
 
 /// One-direction streaming renderer.
@@ -96,7 +94,10 @@ pub trait Renderer {
     fn draw_wall(&mut self, span: &WallSpan, bands: &ClipBands, bank: &TextureBank);
 
     /// Rasterise a floor/ceiling span (future work – unchanged idea).
-    fn draw_plane(&mut self, span: &PlaneSpan, bands: &ClipBands, bank: &TextureBank);
+    fn draw_plane(&mut self, span: &PlaneSpan, bank: &TextureBank);
+
+    /// for debug
+    fn draw_line(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, col: u32);
 
     /// Present the finished frame.
     fn end_frame<F>(&mut self, submit: F)

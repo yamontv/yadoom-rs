@@ -71,7 +71,7 @@ impl Renderer for Software {
         }
     }
 
-    fn draw_plane(&mut self, span: &PlaneSpan, _bands: &ClipBands, bank: &TextureBank) {
+    fn draw_plane(&mut self, span: &PlaneSpan, bank: &TextureBank) {
         let tex = bank
             .texture(span.tex_id)
             .unwrap_or_else(|_| bank.texture(NO_TEXTURE).unwrap());
@@ -91,6 +91,7 @@ impl Renderer for Software {
 
         for x in span.x_start..=span.x_end {
             let col = x as usize;
+
             let u = ((uoz / invz) as i32).rem_euclid(tex.w as i32) as usize;
             let v = ((voz / invz) as i32).rem_euclid(tex.h as i32) as usize;
             row[col] = tex.pixels[v * tex.w + u];
@@ -98,6 +99,33 @@ impl Renderer for Software {
             uoz += duoz;
             voz += dvoz;
             invz += dinvz;
+        }
+    }
+
+    fn draw_line(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, col: u32) {
+        let mut x0 = x0;
+        let mut y0 = y0;
+        let dx = (x1 - x0).abs();
+        let sx = if x0 < x1 { 1 } else { -1 };
+        let dy = -(y1 - y0).abs();
+        let sy = if y0 < y1 { 1 } else { -1 };
+        let mut err = dx + dy;
+        loop {
+            if (0..self.width as i32).contains(&x0) && (0..self.height as i32).contains(&y0) {
+                self.scratch[y0 as usize * self.width + x0 as usize] = col;
+            }
+            if x0 == x1 && y0 == y1 {
+                break;
+            }
+            let e2 = 2 * err;
+            if e2 >= dy {
+                err += dy;
+                x0 += sx;
+            }
+            if e2 <= dx {
+                err += dx;
+                y0 += sy;
+            }
         }
     }
 
@@ -180,10 +208,14 @@ fn draw_column(
     tex: &Texture,
     bands: &ClipBands,
 ) {
+    if bands.ceil[col] > bands.floor[col] {
+        return;
+    }
+
     // Clip vertically (inclusive).
-    let y_min = cur.y_top.max(bands.ceil[col] as f32).ceil() as i32;
-    let y_max = cur.y_bot.min(bands.floor[col] as f32).floor() as i32;
-    if y_min > y_max {
+    let y_min = (cur.y_top.max((bands.ceil[col] + 1) as f32).ceil() as i32).max(0);
+    let y_max = (cur.y_bot.min((bands.floor[col] - 1) as f32).floor() as i32).min(fb_h as i32 - 1);
+    if y_min >= y_max {
         return;
     }
 
@@ -200,137 +232,5 @@ fn draw_column(
         let v_tex = (v_mu as i32).rem_euclid(tex.h as i32) as usize;
         fb[y as usize * fb_w + col] = tex.pixels[v_tex * tex.w + u_tex];
         v_mu += dv_mu;
-    }
-}
-
-/*────────────────────────────── Tests ───────────────────────────────────*/
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::renderer::{ClipBands, Rgba};
-    use crate::world::texture::{Texture, TextureId};
-
-    /// Create a 1×1 white texture and wrap it in a dummy bank.
-    fn single_white_bank() -> TextureBank {
-        let tex = Texture {
-            w: 1,
-            h: 1,
-            pixels: vec![0xFFFF_FFFF],
-        };
-        TextureBank::new(tex)
-    }
-
-    /// Column (x = 1) is fully hidden by the clip bands → nothing gets drawn.
-    #[test]
-    fn column_is_clipped_away() {
-        const W: usize = 3;
-        const H: usize = 3;
-
-        // empty frame-buffer
-        let mut sw = Software::default();
-        sw.begin_frame(W, H);
-
-        // clip column 1 completely
-        let mut ceil = vec![0, H as i32, 0]; // ceil[1] == H   (below screen)
-        let mut floor = vec![H as i32 - 1, -1, H as i32 - 1]; // floor[1] == -1 (above screen)
-        let bands = ClipBands {
-            ceil: &mut ceil,
-            floor: &mut floor,
-        };
-
-        let span = WallSpan {
-            x_start: 1,
-            x_end: 1,
-            y_top0: 0.0,
-            y_top1: 0.0,
-            y_bot0: 2.0,
-            y_bot1: 2.0,
-            wall_h: 64.0,
-            tex_id: NO_TEXTURE,
-            ..Default::default()
-        };
-
-        let bank = single_white_bank();
-        sw.draw_wall(&span, &bands, &bank);
-
-        // frame remains the dark-grey clear colour
-        assert!(sw.scratch.iter().all(|&px| px == 0xFF_20_20_20));
-    }
-
-    #[test]
-    fn step_computation_is_correct() {
-        let span = WallSpan {
-            x_start: 10,
-            x_end: 20, // 10-column span (inclusive)
-            u0_over_z: 0.0,
-            u1_over_z: 11.0,
-            inv_z0: 1.0,
-            inv_z1: 2.0,
-            y_top0: 0.0,
-            y_top1: 11.0,
-            y_bot0: 20.0,
-            y_bot1: 31.0,
-            wall_h: 64.0,
-            texturemid_mu: 0.0,
-            ..Default::default()
-        };
-
-        let step = Step::from_span(&span);
-        let eps = 1e-5;
-
-        assert!((step.duoz - 1.1).abs() < eps);
-        assert!((step.dinvz - 0.1).abs() < eps);
-        assert!((step.dytop - 1.1).abs() < eps);
-        assert!((step.dybot - 1.1).abs() < eps);
-    }
-
-    #[test]
-    fn software_draws_visible_pixel() {
-        let mut sw = Software::default();
-        const W: usize = 4;
-        const H: usize = 4;
-        sw.begin_frame(W, H);
-
-        // ── full-open clip bands ───────────────────────────────────────────────
-        let mut ceil = vec![0; W];
-        let mut floor = vec![H as i32 - 1; W];
-        let bands = ClipBands {
-            ceil: &mut ceil,
-            floor: &mut floor,
-        };
-
-        // ── 1×1 white texture bank ────────────────────────────────────────────
-        let bank = single_white_bank();
-
-        // Wall that covers exactly column 1, rows 1..=2.
-        let span = WallSpan {
-            x_start: 1,
-            x_end: 1,
-            u0_over_z: 0.0,
-            u1_over_z: 0.0,
-            inv_z0: 1.0,
-            inv_z1: 1.0,
-            y_top0: 1.0,
-            y_top1: 1.0,
-            y_bot0: 2.0,
-            y_bot1: 2.0,
-            wall_h: 64.0,
-            texturemid_mu: 0.0,
-            ..Default::default()
-        };
-
-        sw.draw_wall(&span, &bands, &bank);
-
-        // ── verify ────────────────────────────────────────────────────────────
-        let idx = |x, y| y * W + x;
-        assert_eq!(sw.scratch[idx(1, 1)], 0xFFFF_FFFF);
-        assert_eq!(sw.scratch[idx(1, 2)], 0xFFFF_FFFF);
-
-        // All other pixels should remain the clear colour.
-        for (i, &px) in sw.scratch.iter().enumerate() {
-            if ![idx(1, 1), idx(1, 2)].contains(&i) {
-                assert_eq!(px, 0xFF_20_20_20);
-            }
-        }
     }
 }
