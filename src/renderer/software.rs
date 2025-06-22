@@ -12,7 +12,7 @@ use crate::{
     world::texture::{NO_TEXTURE, Texture, TextureBank},
 };
 
-const DIST_FADE_FULL: f32 = 2000.0;
+// const DIST_FADE_FULL: f32 = 2000.0;
 
 /*───────────────────────────────────────────────────────────────────────────*/
 /*                               Backend                                    */
@@ -108,8 +108,9 @@ impl Renderer for Software {
                 let v = ((voz * w) as i32).rem_euclid(tex.h as i32) as usize;
                 let col = tex.pixels[v * tex.w + u];
 
-                let dist_idx = ((1.0 / iz) / DIST_FADE_FULL * 31.0).min(31.0) as usize;
-                let shade = (base_sh + dist_idx).min(31) as u8;
+                // let dist_idx = ((1.0 / iz) / DIST_FADE_FULL * 31.0).min(31.0) as usize;
+                // let shade = (base_sh + dist_idx).min(31) as u8;
+                let shade = base_sh as u8;
 
                 row[x + g] = bank.get_color(shade, col);
 
@@ -127,8 +128,9 @@ impl Renderer for Software {
             let v = ((voz * w) as i32).rem_euclid(tex.h as i32) as usize;
             let col = tex.pixels[v * tex.w + u];
 
-            let dist_idx = ((1.0 / iz) / DIST_FADE_FULL * 31.0).min(31.0) as usize;
-            let shade = (base_sh + dist_idx).min(31) as u8;
+            // let dist_idx = ((1.0 / iz) / DIST_FADE_FULL * 31.0).min(31.0) as usize;
+            // let shade = (base_sh + dist_idx).min(31) as u8;
+            let shade = base_sh as u8;
 
             row[x] = bank.get_color(shade, col);
 
@@ -265,10 +267,11 @@ fn draw_column(
     // Horizontal texture coordinate stays constant in a column.
     let u_tex = ((cur.uoz / cur.inv_z) as i32).rem_euclid(tex.w as i32) as usize;
 
-    let z = 1.0 / cur.inv_z;
-    let dist_idx = (z / DIST_FADE_FULL * 31.0).min(31.0) as usize;
+    // let z = 1.0 / cur.inv_z;
+    // let dist_idx = (z / DIST_FADE_FULL * 31.0).min(31.0) as usize;
     let base_idx = ((255 - span.light) >> 3) as usize; // 0=bright…31=dark
-    let shade_idx = (base_idx + dist_idx).min(31) as u8;
+    // let shade_idx = (base_idx + dist_idx).min(31) as u8;
+    let shade_idx = base_idx as u8;
 
     for y in y_min..=y_max {
         let v_tex = (v_mu as i32).rem_euclid(tex.h as i32) as usize;

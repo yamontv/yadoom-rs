@@ -55,7 +55,7 @@ pub fn load_level(
     /*----- 2. Palette needed for patches + flats -------------------------*/
     let palette = load_palette(wad).ok_or(LoadError::NoPalette)?;
 
-    bank.set_palete(palette);
+    bank.set_palette(palette);
 
     let colormap = load_colormap(wad).ok_or(LoadError::NoPalette)?;
 

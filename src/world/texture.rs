@@ -128,7 +128,7 @@ impl TextureBank {
         }
     }
 
-    pub fn set_palete(&mut self, palette: Palette) {
+    pub fn set_palette(&mut self, palette: Palette) {
         self.palette = palette;
     }
 
@@ -136,8 +136,8 @@ impl TextureBank {
         self.colormap = colormap;
     }
 
-    pub fn get_color(&self, shade_idx: u8, texel: u8)->u32 {
-        let pal_idx = self.colormap[shade_idx.min(31) as usize][texel as usize];
+    pub fn get_color(&self, shade_idx: u8, texel: u8) -> u32 {
+        let pal_idx = self.colormap[shade_idx as usize][texel as usize];
         self.palette[pal_idx as usize]
     }
 
