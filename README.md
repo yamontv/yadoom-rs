@@ -4,7 +4,7 @@
 
 ![Screenshot of E1M1](./docs/screenshot_e1m1.png)
 
-> **Status:** Early‑alpha (playable). Rendering path, level loading and basic input are implemented; audio, AI and save‑games are WIP.
+> **Status:** Early‑alpha (playable). Rendering path, level loading and basic input are implemented; audio, Sprites are WIP.
 
 ---
 
@@ -25,12 +25,13 @@ $ cargo run --release -- <path‑to‑wad>/doom1.wad
 
 ```
 yadoom-rs/         Workspace root
+├── docs/          Screenshots for now
 ├── src/
 │   ├── wad/       Zero‑copy WAD & lump parsing
 │   ├── world/     Typed BSP / geometry layer
 │   ├── engine/    Game‑logic tick + vis‑calc
 │   ├── renderer/  Software & (future) wgpu back‑ends
-│   └── cli/       Binary; arg‑parse, window & main‑loop
+│   └── bin/       Binary; arg‑parse, window & main‑loop
 └── assets/        Wad files for now
 ```
 
