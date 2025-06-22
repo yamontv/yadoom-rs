@@ -44,6 +44,7 @@ pub struct VisPlane {
     /// still uncovered **after** drawing the front geometry.
     pub top: Vec<u16>,
     pub bottom: Vec<u16>,
+    pub modified: bool,
 }
 
 #[derive(Debug, Clone)]

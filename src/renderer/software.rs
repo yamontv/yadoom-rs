@@ -74,39 +74,67 @@ impl Renderer for Software {
         }
     }
 
-    fn draw_plane(&mut self, span: &PlaneSpan, bank: &TextureBank) {
+    #[inline(always)]
+    fn draw_plane(&mut self, span: PlaneSpan, bank: &TextureBank) {
         let tex = bank
             .texture(span.tex_id)
             .unwrap_or_else(|_| bank.texture(NO_TEXTURE).unwrap());
 
-        // Linear interpolation across the horizontal run
+        // per-pixel deltas in 1/z-space
         let w = (span.x_end - span.x_start).max(1) as f32;
-        let duoz = (span.u1_over_z - span.u0_over_z) / w;
-        let dvoz = (span.v1_over_z - span.v0_over_z) / w;
-        let dinvz = (span.inv_z1 - span.inv_z0) / w;
+        let du = (span.u1_over_z - span.u0_over_z) / w;
+        let dv = (span.v1_over_z - span.v0_over_z) / w;
+        let dz = (span.inv_z1 - span.inv_z0) / w;
 
         let mut uoz = span.u0_over_z;
         let mut voz = span.v0_over_z;
-        let mut invz = span.inv_z0;
+        let mut iz = span.inv_z0;
 
-        let fb_y = span.y as usize;
-        let row = &mut self.scratch[fb_y * self.width..][..self.width];
+        let row_idx = span.y as usize * self.width;
+        let row = &mut self.scratch[row_idx..][..self.width];
 
-        let z = 1.0 / invz;
-        let dist_idx = (z / DIST_FADE_FULL * 31.0).min(31.0) as usize;
-        let base_idx = ((255 - span.light) >> 3) as usize; // 0=bright…31=dark
-        let shade_idx = (base_idx + dist_idx).min(31) as u8;
+        let base_sh = ((255 - span.light) >> 3) as usize;
 
-        for x in span.x_start..=span.x_end {
-            let col = x as usize;
+        // -------- render in small groups to reuse a single reciprocal ----------
+        const G: usize = 8; // group size
+        let mut x = span.x_start as usize;
+        while x + (G as usize) - 1 <= span.x_end as usize {
+            // one reciprocal gives ≈7–8 ulp accuracy after one NR step
+            let mut w = iz.recip(); // fast (≈4 cycles)
+            w = w * (2.0 - iz * w); // Newton–Raphson refine
 
-            let u = ((uoz / invz) as i32).rem_euclid(tex.w as i32) as usize;
-            let v = ((voz / invz) as i32).rem_euclid(tex.h as i32) as usize;
-            row[col] = bank.get_color(shade_idx, tex.pixels[v * tex.w + u]);
+            for g in 0..G {
+                let u = ((uoz * w) as i32).rem_euclid(tex.w as i32) as usize;
+                let v = ((voz * w) as i32).rem_euclid(tex.h as i32) as usize;
+                let col = tex.pixels[v * tex.w + u];
 
-            uoz += duoz;
-            voz += dvoz;
-            invz += dinvz;
+                let dist_idx = ((1.0 / iz) / DIST_FADE_FULL * 31.0).min(31.0) as usize;
+                let shade = (base_sh + dist_idx).min(31) as u8;
+
+                row[x + g] = bank.get_color(shade, col);
+
+                uoz += du;
+                voz += dv;
+                iz += dz;
+            }
+            x += G;
+        }
+
+        // tail ( < G pixels ) — fall back to the scalar path
+        for x in x..=span.x_end as usize {
+            let w = iz.recip();
+            let u = ((uoz * w) as i32).rem_euclid(tex.w as i32) as usize;
+            let v = ((voz * w) as i32).rem_euclid(tex.h as i32) as usize;
+            let col = tex.pixels[v * tex.w + u];
+
+            let dist_idx = ((1.0 / iz) / DIST_FADE_FULL * 31.0).min(31.0) as usize;
+            let shade = (base_sh + dist_idx).min(31) as u8;
+
+            row[x] = bank.get_color(shade, col);
+
+            uoz += du;
+            voz += dv;
+            iz += dz;
         }
     }
 

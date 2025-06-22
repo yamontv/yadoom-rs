@@ -341,6 +341,7 @@ impl<R: Renderer> Engine<R> {
                     let bottom = (y0 - 1).min(self.clip_bands.floor[col] - 1);
 
                     if top <= bottom {
+                        vp.modified = true;
                         vp.top[col] = top.max(0) as u16;
                         vp.bottom[col] = bottom.max(0) as u16;
                     }
@@ -350,6 +351,7 @@ impl<R: Renderer> Engine<R> {
                     let top = (y1 + 1).max(self.clip_bands.ceil[col]);
                     let bottom = self.clip_bands.floor[col];
                     if top <= bottom {
+                        vp.modified = true;
                         vp.top[col] = top.max(0) as u16;
                         vp.bottom[col] = bottom.max(0) as u16;
                     }

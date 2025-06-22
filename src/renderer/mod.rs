@@ -97,7 +97,7 @@ pub trait Renderer {
     fn draw_wall(&mut self, span: &WallSpan, bands: &ClipBands, bank: &TextureBank);
 
     /// Rasterise a floor/ceiling span (future work – unchanged idea).
-    fn draw_plane(&mut self, span: &PlaneSpan, bank: &TextureBank);
+    fn draw_plane(&mut self, span: PlaneSpan, bank: &TextureBank);
 
     /// for debug
     fn draw_line(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, col: u32);

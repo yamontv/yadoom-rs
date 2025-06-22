@@ -7,6 +7,7 @@ use crate::{
         texture::{NO_TEXTURE, TextureBank, TextureId},
     },
 };
+use glam::Vec2;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
@@ -82,6 +83,7 @@ impl PlaneMap {
             max_x,
             top: vec![u16::MAX; self.width],
             bottom: vec![u16::MIN; self.width],
+            modified: false,
         };
 
         self.planes.push(new_plane);
@@ -117,26 +119,37 @@ impl PlaneMap {
         view: &Viewer,
         bank: &TextureBank,
     ) {
+        let cam_fwd = cam.forward();
+        let cam_right = cam.right();
+        let cam_base = cam.pos().truncate();
+
         // The original Doom drew floors & ceilings *after* the walls, so we
         // simply iterate as we stored them (front parts first = back parts last).
-        for vp in &self.planes {
-            if vp.tex == NO_TEXTURE {
+        for vp in self.planes.iter() {
+            if vp.tex == NO_TEXTURE || !vp.modified {
                 continue;
             }
             for y in 0..screen.h as u16 {
-                let mut run_start = None;
+                let mut xs = u16::MAX; // sentinel “no run”
 
                 for x in vp.min_x..=vp.max_x {
                     let col = x as usize;
 
-                    // is the current (col,row) inside the unclipped part of the plane?
-                    if vp.top[col] <= y && vp.bottom[col] >= y {
-                        run_start.get_or_insert(x);
-                    } else if let Some(xs) = run_start {
+                    let inside = vp.top[col] <= y && vp.bottom[col] >= y;
+
+                    if inside {
+                        if xs == u16::MAX {
+                            // run starts
+                            xs = x;
+                        }
+                    } else if xs != u16::MAX {
+                        // run ends
                         Self::emit_span(
                             renderer,
                             lvl,
-                            cam,
+                            &cam_fwd,
+                            &cam_right,
+                            &cam_base,
                             screen,
                             view,
                             vp,
@@ -145,13 +158,15 @@ impl PlaneMap {
                             x - 1,
                             bank,
                         );
-                        run_start = None;
+                        xs = u16::MAX;
                     }
                 }
 
-                if let Some(xs) = run_start {
+                if xs != u16::MAX {
+                    // tail-run
                     Self::emit_span(
-                        renderer, lvl, cam, screen, view, vp, y as u16, xs, vp.max_x, bank,
+                        renderer, lvl, &cam_fwd, &cam_right, &cam_base, screen, view, vp, y as u16,
+                        xs, vp.max_x, bank,
                     );
                 }
             }
@@ -160,10 +175,13 @@ impl PlaneMap {
 
     /// Convert one horizontal pixel run into a perspective-correct [`PlaneSpan`]
     /// and forward it to the backend renderer.
+    #[inline(always)]
     fn emit_span<R: Renderer>(
         renderer: &mut R,
         _lvl: &Level,
-        cam: &Camera,
+        cam_fwd: &Vec2,
+        cam_right: &Vec2,
+        cam_base: &Vec2,
         screen: &Screen,
         view: &Viewer,
         vp: &VisPlane,
@@ -172,61 +190,54 @@ impl PlaneMap {
         x_end: u16,
         bank: &TextureBank,
     ) {
-        // For every end-point we need (u/z, v/z, 1/z).  Use the same maths that
-        // the classic engine used: treat the floor/ceiling as an infinite plane
-        // ───────────────────────────────────────────────────────────────────
-        let plane_height = vp.height as f32 - view.view_z;
-        let center_y = screen.half_h;
-        let screen_y = y as f32 + 0.5; // sample at pixel center
-        let inv_p_y = 1.0 / (screen_y - center_y);
+        // signed quantities ----------------------------------------------------
+        let plane_height = vp.height as f32 - view.view_z; // <0 floor, >0 ceil
+        let dy = (y as f32 + 0.5) - screen.half_h; // <0 upper half, >0 lower
+        let inv_dy = 1.0 / dy; // signed
+        let ratio = plane_height * inv_dy; // signed  (key!)
 
-        // Pre-compute helpers shared by both ends of the span
-        let dist_scale = view.focal * plane_height.abs() * inv_p_y.abs(); // distance along view dir
-        let leftmost = (x_start as f32 + 0.5) - screen.half_w;
-        let rightmost = (x_end as f32 + 0.5) - screen.half_w;
-        let step = (rightmost - leftmost) / (x_end - x_start).max(1) as f32;
+        // positive distance along view direction ------------------------------
+        let z = view.focal * ratio.abs(); // == |plane_h| * f / |dy|
+        let inv_z = 1.0 / z;
 
-        // At x = 0, the world position is eye + forward*dist + right*offset
-        let fwd = cam.forward();
-        let right = cam.right();
-        let base = cam.pos().truncate()
-            + fwd * dist_scale
-            + right * (leftmost * plane_height / (screen_y - center_y));
+        // screen-space helpers -------------------------------------------------
+        let left_scr = (x_start as f32 + 0.5) - screen.half_w;
+        let right_scr = (x_end as f32 + 0.5) - screen.half_w;
+        let w_px = (x_end - x_start).max(1) as f32;
+        let step_scr = (right_scr - left_scr) / w_px;
 
-        // (u, v) map-units per pixel
-        let du = right * (plane_height * step / (screen_y - center_y));
-        // let dv = fwd * (plane_height * step / (screen_y - center_y));
+        // world position at the left edge of the span -------------------------
+        let base = cam_base
+             + *cam_fwd   * z                                   // forward component
+             + *cam_right * (left_scr * ratio); // **signed** lateral shift
 
-        // Compute *once per span* the tex-coord / z and 1/z at both ends
-        let world_p0 = base;
-        let world_p1 = base + du * (x_end - x_start) as f32;
+        // world-space step per pixel along X ----------------------------------
+        let du = *cam_right * (step_scr * ratio); // **signed**
 
-        let z0 = dist_scale; // distance along view dir doubles as z in camera space
-        let z1 = dist_scale; // constant along the span (plane is perpendicular to view)
+        // endpoints -----------------------------------------------------------
+        let world0 = base;
+        let world1 = base + du * w_px;
 
-        let inv_z0 = 1.0 / z0;
-        let inv_z1 = 1.0 / z1;
-
-        let u0_over_z = world_p0.x * inv_z0;
-        let v0_over_z = world_p0.y * inv_z0;
-        let u1_over_z = world_p1.x * inv_z1;
-        let v1_over_z = world_p1.y * inv_z1;
+        let u0oz = world0.x * inv_z;
+        let v0oz = world0.y * inv_z;
+        let u1oz = world1.x * inv_z; // z is constant, reuse inv_z
+        let v1oz = world1.y * inv_z;
 
         renderer.draw_plane(
-            &PlaneSpan {
+            PlaneSpan {
                 tex_id: vp.tex,
                 light: vp.light,
-                u0_over_z,
-                v0_over_z,
-                u1_over_z,
-                v1_over_z,
-                inv_z0,
-                inv_z1,
+                u0_over_z: u0oz,
+                v0_over_z: v0oz,
+                u1_over_z: u1oz,
+                v1_over_z: v1oz,
+                inv_z0: inv_z, // identical at both ends
+                inv_z1: inv_z,
                 y,
                 x_start,
                 x_end,
             },
-            bank, /* unused by sw renderer */
+            bank,
         );
     }
 }
