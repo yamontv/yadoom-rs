@@ -3,6 +3,8 @@
 
 use std::collections::HashMap;
 
+use std::ops::{Index, IndexMut};
+
 /// Runtime handle for a texture in this bank.
 ///
 /// *Guaranteed* to remain stable for the lifetime of the bank.
@@ -19,7 +21,29 @@ pub const NO_TEXTURE: TextureId = 0;
 pub struct Texture {
     pub w: usize,
     pub h: usize,
-    pub pixels: Vec<u32>,
+    pub pixels: Vec<u8>,
+}
+/// Convenience checkerboard 8×8 (dark/light grey).
+impl Default for Texture {
+    fn default() -> Self {
+        const LIGHT_IDX: u8 = 8;
+        const DARK_IDX: u8 = 16;
+        let mut pix = vec![0u8; 8 * 8];
+        for y in 0..8 {
+            for x in 0..8 {
+                pix[y * 8 + x] = if (x ^ y) & 1 == 0 {
+                    LIGHT_IDX
+                } else {
+                    DARK_IDX
+                };
+            }
+        }
+        Texture {
+            w: 8,
+            h: 8,
+            pixels: pix,
+        }
+    }
 }
 
 /// Things that can go wrong when using the bank.
@@ -34,6 +58,42 @@ pub enum TextureError {
     BadId(TextureId),
 }
 
+pub struct Palette(pub [u32; 256]);
+impl Default for Palette {
+    fn default() -> Self {
+        Palette([0u32; 256])
+    }
+}
+impl Index<usize> for Palette {
+    type Output = u32;
+    fn index(&self, idx: usize) -> &u32 {
+        &self.0[idx]
+    }
+}
+impl IndexMut<usize> for Palette {
+    fn index_mut(&mut self, idx: usize) -> &mut u32 {
+        &mut self.0[idx]
+    }
+}
+
+pub struct Colormap(pub [[u8; 256]; 34]);
+impl Default for Colormap {
+    fn default() -> Self {
+        Colormap([[0u8; 256]; 34])
+    }
+}
+impl Index<usize> for Colormap {
+    type Output = [u8; 256];
+    fn index(&self, idx: usize) -> &Self::Output {
+        &self.0[idx]
+    }
+}
+impl IndexMut<usize> for Colormap {
+    fn index_mut(&mut self, idx: usize) -> &mut [u8; 256] {
+        &mut self.0[idx]
+    }
+}
+
 /// A palette-agnostic, format-agnostic cache of textures.
 ///
 /// * Does **not** know about WADs, PNG, OpenGL — that’s the loader’s job.
@@ -45,6 +105,8 @@ pub enum TextureError {
 pub struct TextureBank {
     by_name: HashMap<String, TextureId>,
     data: Vec<Texture>,
+    palette: Palette,
+    colormap: Colormap,
 }
 
 impl TextureBank {
@@ -61,26 +123,26 @@ impl TextureBank {
         Self {
             by_name,
             data: vec![missing_tex],
+            palette: Palette::default(),
+            colormap: Colormap::default(),
         }
     }
 
-    /// Convenience checkerboard 8×8 (dark/light grey).
+    pub fn set_palete(&mut self, palette: Palette) {
+        self.palette = palette;
+    }
+
+    pub fn set_colormap(&mut self, colormap: Colormap) {
+        self.colormap = colormap;
+    }
+
+    pub fn get_color(&self, shade_idx: u8, texel: u8)->u32 {
+        let pal_idx = self.colormap[shade_idx.min(31) as usize][texel as usize];
+        self.palette[pal_idx as usize]
+    }
+
     pub fn default_with_checker() -> Self {
-        let mut pix = vec![0u32; 8 * 8];
-        for y in 0..8 {
-            for x in 0..8 {
-                pix[y * 8 + x] = if (x ^ y) & 1 == 0 {
-                    0xFF_909090
-                } else {
-                    0xFF_303030
-                };
-            }
-        }
-        Self::new(Texture {
-            w: 8,
-            h: 8,
-            pixels: pix,
-        })
+        Self::new(Texture::default())
     }
 
     // ---------------------------------------------------------------------
@@ -149,7 +211,7 @@ impl TextureBank {
 mod tests {
     use super::*;
 
-    fn dummy_tex(color: u32) -> Texture {
+    fn dummy_tex(color: u8) -> Texture {
         Texture {
             w: 2,
             h: 2,
@@ -160,8 +222,8 @@ mod tests {
     #[test]
     fn insert_and_lookup() {
         let mut bank = TextureBank::default_with_checker();
-        let red = bank.insert("RED", dummy_tex(0xFF_FF0000)).unwrap();
-        let blue = bank.insert("BLUE", dummy_tex(0xFF_0000FF)).unwrap();
+        let red = bank.insert("RED", dummy_tex(0x00)).unwrap();
+        let blue = bank.insert("BLUE", dummy_tex(0xFF)).unwrap();
 
         assert_ne!(red, NO_TEXTURE);
         assert_ne!(blue, red);
@@ -169,8 +231,8 @@ mod tests {
         assert_eq!(bank.id("BLUE"), Some(blue));
         assert_eq!(bank.id("NOPE"), None);
 
-        assert_eq!(bank.texture(red).unwrap().pixels[0], 0xFF_FF0000);
-        assert_eq!(bank.texture(blue).unwrap().pixels[0], 0xFF_0000FF);
+        assert_eq!(bank.texture(red).unwrap().pixels[0], 0x00);
+        assert_eq!(bank.texture(blue).unwrap().pixels[0], 0xFF);
     }
 
     #[test]

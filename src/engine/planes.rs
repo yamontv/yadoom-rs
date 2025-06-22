@@ -215,6 +215,7 @@ impl PlaneMap {
         renderer.draw_plane(
             &PlaneSpan {
                 tex_id: vp.tex,
+                light: vp.light,
                 u0_over_z,
                 v0_over_z,
                 u1_over_z,

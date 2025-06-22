@@ -22,6 +22,7 @@ pub type Rgba = u32;
 #[derive(Clone, Debug)]
 pub struct WallSpan {
     pub tex_id: TextureId,
+    pub light: i16,
 
     /* perspective-correct texture coords (already divided by z) */
     pub u0_over_z: f32,
@@ -56,6 +57,7 @@ impl Default for WallSpan {
             wall_h: 64.0,
             texturemid_mu: 0.0,
             tex_id: NO_TEXTURE,
+            light: 0,
         }
     }
 }
@@ -65,6 +67,7 @@ impl Default for WallSpan {
 #[derive(Clone, Debug)]
 pub struct PlaneSpan {
     pub tex_id: TextureId,
+    pub light: i16,
     /* perspective-correct UV/z at span edges */
     pub u0_over_z: f32,
     pub v0_over_z: f32,

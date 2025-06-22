@@ -11,7 +11,7 @@ use crate::{
     wad::{Wad, WadError, level as raw},
     world::{
         geometry as geo,
-        texture::{NO_TEXTURE, Texture, TextureBank, TextureError, TextureId},
+        texture::{Colormap, NO_TEXTURE, Palette, Texture, TextureBank, TextureError, TextureId},
     },
 };
 use glam::vec2;
@@ -32,6 +32,9 @@ pub enum LoadError {
 
     #[error("PLAYPAL lump missing - cannot build palette")]
     NoPalette,
+
+    #[error("COLORMAP lump missing - cannot build palette")]
+    NoColormap,
 }
 
 /*====================================================================*/
@@ -52,8 +55,14 @@ pub fn load_level(
     /*----- 2. Palette needed for patches + flats -------------------------*/
     let palette = load_palette(wad).ok_or(LoadError::NoPalette)?;
 
+    bank.set_palete(palette);
+
+    let colormap = load_colormap(wad).ok_or(LoadError::NoPalette)?;
+
+    bank.set_colormap(colormap);
+
     /*----- 3. Patch cache (index → Texture) ------------------------------*/
-    let patch_vec = decode_all_patches(wad, &palette)?;
+    let patch_vec = decode_all_patches(wad)?;
 
     /*----- 4. Helper: resolve name → TextureId ---------------------------*/
     let mut tex_id = |name_bytes: &[u8; 8]| -> Result<TextureId, LoadError> {
@@ -64,7 +73,7 @@ pub fn load_level(
         if let Some(tex) = build_wall_texture(wad, &patch_vec, &name) {
             return Ok(bank.insert(name, tex)?);
         }
-        if let Some(tex) = decode_flat(wad, &palette, &name) {
+        if let Some(tex) = decode_flat(wad, &name) {
             return Ok(bank.insert(name, tex)?);
         }
         Ok(NO_TEXTURE)
@@ -213,10 +222,10 @@ mod raw_to_geo {
 /*====================================================================*/
 /*                  Palette / patch / texture helpers                 */
 /*====================================================================*/
-fn load_palette(wad: &Wad) -> Option<[u32; 256]> {
+fn load_palette(wad: &Wad) -> Option<Palette> {
     let idx = wad.find_lump("PLAYPAL")?;
     let bytes = wad.lump_bytes(idx).ok()?;
-    let mut pal = [0u32; 256];
+    let mut pal = Palette::default();
     for i in 0..256 {
         pal[i] =
             (bytes[i * 3] as u32) << 16 | (bytes[i * 3 + 1] as u32) << 8 | bytes[i * 3 + 2] as u32;
@@ -224,9 +233,34 @@ fn load_palette(wad: &Wad) -> Option<[u32; 256]> {
     Some(pal)
 }
 
+fn load_colormap(wad: &Wad) -> Option<Colormap> {
+    // 1) Find the lump index
+    let idx = wad.find_lump("COLORMAP")?;
+
+    // 2) Read its raw bytes
+    let bytes = wad.lump_bytes(idx).ok()?;
+
+    // 3) There should be at least 34 * 256 = 8704 bytes
+    if bytes.len() < 34 * 256 {
+        return None;
+    }
+
+    // 4) Allocate the array-of-arrays
+    let mut cm = Colormap::default();
+
+    // 5) Copy each 256-byte slice into its table
+    for table in 0..34 {
+        let start = table * 256;
+        let end = start + 256;
+        cm[table].copy_from_slice(&bytes[start..end]);
+    }
+
+    Some(cm)
+}
+
 /*-------------------- patch cache -----------------------------------*/
 
-fn decode_all_patches(wad: &Wad, pal: &[u32; 256]) -> Result<Vec<Texture>, WadError> {
+fn decode_all_patches(wad: &Wad) -> Result<Vec<Texture>, WadError> {
     let idx = wad.find_lump("PNAMES").unwrap();
     let bytes = wad.lump_bytes(idx)?;
     let num = u32::from_le_bytes(bytes[0..4].try_into().unwrap()) as usize;
@@ -236,18 +270,18 @@ fn decode_all_patches(wad: &Wad, pal: &[u32; 256]) -> Result<Vec<Texture>, WadEr
         let name_bytes: &[u8; 8] = (&bytes[4 + i * 8..4 + i * 8 + 8]).try_into().unwrap();
         let name = Wad::lump_name_str(name_bytes);
         if let Some(id) = wad.find_lump(name) {
-            vec.push(decode_patch(wad.lump_bytes(id)?, pal));
+            vec.push(decode_patch(wad.lump_bytes(id)?));
         } else {
-            vec.push(checkerboard()); // unlikely but keeps indices aligned
+            vec.push(Texture::default()); // unlikely but keeps indices aligned
         }
     }
     Ok(vec)
 }
 
-fn decode_patch(raw: &[u8], pal: &[u32; 256]) -> Texture {
+fn decode_patch(raw: &[u8]) -> Texture {
     let w = u16::from_le_bytes(raw[0..2].try_into().unwrap()) as usize;
     let h = u16::from_le_bytes(raw[2..4].try_into().unwrap()) as usize;
-    let mut pix = vec![0u32; w * h];
+    let mut pix = vec![0u8; w * h];
     let colofs = &raw[8..8 + w * 4];
     for x in 0..w {
         let mut p = u32::from_le_bytes(colofs[x * 4..][..4].try_into().unwrap()) as usize;
@@ -259,7 +293,7 @@ fn decode_patch(raw: &[u8], pal: &[u32; 256]) -> Texture {
             let len = raw[p + 1] as usize;
             p += 3;
             for i in 0..len {
-                pix[(row + i) * w + x] = pal[raw[p + i] as usize];
+                pix[(row + i) * w + x] = raw[p + i];
             }
             p += len + 1;
         }
@@ -297,7 +331,7 @@ fn compose_texture(entry: &[u8], patches: &[Texture]) -> Texture {
     let h_tex = i16::from_le_bytes(entry[14..16].try_into().unwrap()) as usize;
     let np = u16::from_le_bytes(entry[20..22].try_into().unwrap()) as usize;
 
-    let mut canvas = vec![0u32; w_tex * h_tex];
+    let mut canvas = vec![0u8; w_tex * h_tex];
     let mut pinfo = &entry[22..];
     for _ in 0..np {
         let ox = i16::from_le_bytes(pinfo[0..2].try_into().unwrap()) as i32;
@@ -313,7 +347,7 @@ fn compose_texture(entry: &[u8], patches: &[Texture]) -> Texture {
     }
 }
 
-fn blit_patch(dest: &mut [u32], dw: usize, dh: usize, p: &Texture, ox: i32, oy: i32) {
+fn blit_patch(dest: &mut [u8], dw: usize, dh: usize, p: &Texture, ox: i32, oy: i32) {
     for py in 0..p.h {
         let dy = oy + py as i32;
         if !(0..dh as i32).contains(&dy) {
@@ -334,7 +368,7 @@ fn blit_patch(dest: &mut [u32], dw: usize, dh: usize, p: &Texture, ox: i32, oy: 
 
 /*----------------------------- flats --------------------------------*/
 
-fn decode_flat(wad: &Wad, pal: &[u32; 256], name: &str) -> Option<Texture> {
+fn decode_flat(wad: &Wad, name: &str) -> Option<Texture> {
     let idx = wad.find_lump(name)?;
     let bytes = wad.lump_bytes(idx).ok()?;
     if bytes.len() != 4096 {
@@ -342,29 +376,13 @@ fn decode_flat(wad: &Wad, pal: &[u32; 256], name: &str) -> Option<Texture> {
     }
     let mut rgba = Vec::with_capacity(64 * 64);
     for &b in bytes {
-        rgba.push(pal[b as usize]);
+        rgba.push(b);
     }
     Some(Texture {
         w: 64,
         h: 64,
         pixels: rgba,
     })
-}
-
-/*------------------------- checker fallback -------------------------*/
-fn checkerboard() -> Texture {
-    let w = 8;
-    let mut p = vec![0u32; w * w];
-    for y in 0..w {
-        for x in 0..w {
-            p[y * w + x] = if (x ^ y) & 1 == 0 {
-                0xFF_808080
-            } else {
-                0xFF_202020
-            };
-        }
-    }
-    Texture { w, h: w, pixels: p }
 }
 
 /*====================================================================*/

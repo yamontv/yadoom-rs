@@ -4,7 +4,7 @@ use crate::{
     engine::types::{ClipRange, Edge},
     renderer::{Renderer, Rgba, WallSpan},
     world::{
-        geometry::LinedefFlags,
+        geometry::{LinedefFlags, Sector, Seg, Sidedef},
         texture::{NO_TEXTURE, TextureId},
     },
 };
@@ -95,6 +95,20 @@ impl<R: Renderer> Engine<R> {
         }
     }
 
+    fn sectors_for_seg(&self, seg: &Seg) -> (&Sidedef, Option<&Sector>) {
+        let ld = &self.level.linedefs[seg.linedef as usize];
+        let (sd_front_idx, sd_back_idx) = if seg.dir == 0 {
+            (ld.right_sidedef, ld.left_sidedef)
+        } else {
+            (ld.left_sidedef, ld.right_sidedef)
+        };
+        let front = &self.level.sidedefs[sd_front_idx.unwrap() as usize];
+        let back = sd_back_idx
+            .and_then(|i| self.level.sidedefs.get(i as usize))
+            .map(|sd| &self.level.sectors[sd.sector as usize]);
+        (front, back)
+    }
+
     fn build_spans(&mut self, edge: &Edge) {
         // Resolve sidedefs / sectors ------------------------------------------------
         let seg = &self.level.segs[edge.seg_idx as usize];
@@ -147,6 +161,7 @@ impl<R: Renderer> Engine<R> {
         let worldtop = sec_front.ceil_h;
         let worldbottom = sec_front.floor_h;
         let sd_y_off = sd_front.y_off as f32;
+        let light = sec_front.light;
         // Decide which spans to draw -----------------------------------------------
         if have_back && ld.flags.contains(LinedefFlags::TWO_SIDED) {
             let worldhigh = sec_back.ceil_h;
@@ -207,6 +222,7 @@ impl<R: Renderer> Engine<R> {
                 edge,
                 worldtop as f32,
                 upper_floor_h as f32,
+                light,
                 upper_tex,
                 ClipKind::Upper,
                 pegged,
@@ -219,6 +235,7 @@ impl<R: Renderer> Engine<R> {
                 edge,
                 lower_ceil_h as f32,
                 worldbottom as f32,
+                light,
                 lower_tex,
                 ClipKind::Lower,
                 pegged,
@@ -233,6 +250,7 @@ impl<R: Renderer> Engine<R> {
                 edge,
                 worldtop as f32,
                 worldbottom as f32,
+                light,
                 sd_front.middle,
                 ClipKind::Solid,
                 pegged,
@@ -249,6 +267,7 @@ impl<R: Renderer> Engine<R> {
         edge: &Edge,
         ceil_h: f32,
         floor_h: f32,
+        light: i16,
         tex: TextureId,
         kind: ClipKind,
         pegged: bool,
@@ -287,6 +306,7 @@ impl<R: Renderer> Engine<R> {
             &WallSpan {
                 /* projection */
                 tex_id: tex,
+                light,
                 u0_over_z: edge.uoz_l,
                 u1_over_z: edge.uoz_r,
                 inv_z0: edge.invz_l,

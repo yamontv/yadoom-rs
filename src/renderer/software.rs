@@ -12,6 +12,8 @@ use crate::{
     world::texture::{NO_TEXTURE, Texture, TextureBank},
 };
 
+const DIST_FADE_FULL: f32 = 2000.0;
+
 /*───────────────────────────────────────────────────────────────────────────*/
 /*                               Backend                                    */
 /*───────────────────────────────────────────────────────────────────────────*/
@@ -63,7 +65,9 @@ impl Renderer for Software {
                     self.height,
                     cur,
                     span,
+                    bank,
                     tex,
+                    span.light,
                     bands,
                 );
             }
@@ -89,12 +93,17 @@ impl Renderer for Software {
         let fb_y = span.y as usize;
         let row = &mut self.scratch[fb_y * self.width..][..self.width];
 
+        let z = 1.0 / invz;
+        let dist_idx = (z / DIST_FADE_FULL * 31.0).min(31.0) as usize;
+        let base_idx = ((255 - span.light) >> 3) as usize; // 0=bright…31=dark
+        let shade_idx = (base_idx + dist_idx).min(31) as u8;
+
         for x in span.x_start..=span.x_end {
             let col = x as usize;
 
             let u = ((uoz / invz) as i32).rem_euclid(tex.w as i32) as usize;
             let v = ((voz / invz) as i32).rem_euclid(tex.h as i32) as usize;
-            row[col] = tex.pixels[v * tex.w + u];
+            row[col] = bank.get_color(shade_idx, tex.pixels[v * tex.w + u]);
 
             uoz += duoz;
             voz += dvoz;
@@ -205,7 +214,9 @@ fn draw_column(
     fb_h: usize,
     cur: Cursor,
     span: &WallSpan,
+    bank: &TextureBank,
     tex: &Texture,
+    light: i16,
     bands: &ClipBands,
 ) {
     if bands.ceil[col] > bands.floor[col] {
@@ -228,9 +239,14 @@ fn draw_column(
     // Horizontal texture coordinate stays constant in a column.
     let u_tex = ((cur.uoz / cur.inv_z) as i32).rem_euclid(tex.w as i32) as usize;
 
+    let z = 1.0 / cur.inv_z;
+    let dist_idx = (z / DIST_FADE_FULL * 31.0).min(31.0) as usize;
+    let base_idx = ((255 - span.light) >> 3) as usize; // 0=bright…31=dark
+    let shade_idx = (base_idx + dist_idx).min(31) as u8;
+
     for y in y_min..=y_max {
         let v_tex = (v_mu as i32).rem_euclid(tex.h as i32) as usize;
-        fb[y as usize * fb_w + col] = tex.pixels[v_tex * tex.w + u_tex];
+        fb[y as usize * fb_w + col] = bank.get_color(shade_idx, tex.pixels[v_tex * tex.w + u_tex]);
         v_mu += dv_mu;
     }
 }
