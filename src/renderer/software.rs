@@ -67,7 +67,6 @@ impl Renderer for Software {
                     span,
                     bank,
                     tex,
-                    span.light,
                     bands,
                 );
             }
@@ -216,7 +215,6 @@ fn draw_column(
     span: &WallSpan,
     bank: &TextureBank,
     tex: &Texture,
-    light: i16,
     bands: &ClipBands,
 ) {
     if bands.ceil[col] > bands.floor[col] {

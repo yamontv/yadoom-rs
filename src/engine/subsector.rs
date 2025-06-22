@@ -4,7 +4,7 @@ use crate::{
     engine::types::{ClipRange, Edge},
     renderer::{Renderer, Rgba, WallSpan},
     world::{
-        geometry::{LinedefFlags, Sector, Seg, Sidedef},
+        geometry::{Linedef, LinedefFlags, Sector, Seg, Sidedef},
         texture::{NO_TEXTURE, TextureId},
     },
 };
@@ -16,51 +16,23 @@ enum ClipKind {
     Lower,
 }
 
-/*────────────────────── span construction helpers ───────────────────*/
-#[derive(Clone, Copy)]
-struct ColumnStep {
-    duoz: f32,
-    dinvz: f32,
-    dyt: f32,
-    dyb: f32,
-}
-
-#[derive(Clone, Copy)]
-struct ColumnCursor {
-    uoz: f32,
-    invz: f32,
-    y_t: f32,
-    y_b: f32,
-}
-
-impl ColumnStep {
-    fn from_span(s: &WallSpan) -> Self {
-        let w = (s.x_end - s.x_start).max(1) as f32;
-        Self {
-            duoz: (s.u1_over_z - s.u0_over_z) / w,
-            dinvz: (s.inv_z1 - s.inv_z0) / w,
-            dyt: (s.y_top1 - s.y_top0) / w,
-            dyb: (s.y_bot1 - s.y_bot0) / w,
-        }
-    }
-}
-
-impl ColumnCursor {
-    fn from_span(s: &WallSpan) -> Self {
-        Self {
-            uoz: s.u0_over_z,
-            invz: s.inv_z0,
-            y_t: s.y_top0,
-            y_b: s.y_bot0,
-        }
-    }
-    #[inline]
-    fn step(&mut self, d: &ColumnStep) {
-        self.uoz += d.duoz;
-        self.invz += d.dinvz;
-        self.y_t += d.dyt;
-        self.y_b += d.dyb;
-    }
+enum WallPass {
+    Solid {
+        pegged: bool,
+        world_top: i16,
+        world_bottom: i16,
+    },
+    TwoSided {
+        pegged: bool,
+        world_top: i16,
+        world_bottom: i16,
+        mark_floor: bool,
+        mark_ceiling: bool,
+        upper_floor_h: i16,
+        upper_tex: TextureId,
+        lower_ceil_h: i16,
+        lower_tex: TextureId,
+    },
 }
 
 impl<R: Renderer> Engine<R> {
@@ -95,7 +67,7 @@ impl<R: Renderer> Engine<R> {
         }
     }
 
-    fn sectors_for_seg(&self, seg: &Seg) -> (&Sidedef, Option<&Sector>) {
+    fn sectors_for_seg(&self, seg: &Seg) -> (&Sidedef, Option<&Sector>, &Linedef) {
         let ld = &self.level.linedefs[seg.linedef as usize];
         let (sd_front_idx, sd_back_idx) = if seg.dir == 0 {
             (ld.right_sidedef, ld.left_sidedef)
@@ -106,33 +78,99 @@ impl<R: Renderer> Engine<R> {
         let back = sd_back_idx
             .and_then(|i| self.level.sidedefs.get(i as usize))
             .map(|sd| &self.level.sectors[sd.sector as usize]);
-        (front, back)
+        (front, back, ld)
+    }
+
+    fn decide_pass(
+        &self,
+        sd_front: &Sidedef,
+        sec_front: &Sector,
+        sec_back_opt: Option<&Sector>,
+        ld: &Linedef,
+    ) -> WallPass {
+        let world_top = sec_front.ceil_h;
+        let world_bottom = sec_front.floor_h;
+
+        if sec_back_opt.is_some() && ld.flags.contains(LinedefFlags::TWO_SIDED) {
+            let sec_back = sec_back_opt.unwrap();
+            let worldhigh = sec_back.ceil_h;
+            let worldlow = sec_back.floor_h;
+
+            let mut mark_floor;
+            let mut mark_ceiling;
+
+            if worldlow != world_bottom
+                || sec_back.floor_tex != sec_front.floor_tex
+                || sec_back.light != sec_front.light
+            {
+                // not the same plane on both sides
+                mark_floor = true;
+            } else {
+                // same plane on both sides
+                mark_floor = false;
+            }
+
+            if worldhigh != world_top
+                || sec_back.ceil_tex != sec_front.ceil_tex
+                || sec_back.light != sec_front.light
+            {
+                mark_ceiling = true;
+            } else {
+                // same plane on both sides
+                mark_ceiling = false;
+            }
+
+            if worldhigh <= world_bottom || worldlow >= world_top {
+                // closed door
+                mark_ceiling = true;
+                mark_floor = true;
+            }
+
+            // ─ upper portal
+            let upper_floor_h = worldhigh.min(world_top);
+            let upper_tex = if worldhigh < world_top {
+                sd_front.upper
+            } else {
+                NO_TEXTURE
+            };
+
+            // ─ lower portal
+            let lower_ceil_h = worldlow.max(world_bottom);
+            let lower_tex = if worldlow > world_bottom {
+                sd_front.lower
+            } else {
+                NO_TEXTURE
+            };
+            WallPass::TwoSided {
+                pegged: ld.flags.contains(LinedefFlags::UPPER_UNPEGGED),
+                world_top,
+                world_bottom,
+                mark_floor,
+                mark_ceiling,
+                upper_floor_h,
+                upper_tex,
+                lower_ceil_h,
+                lower_tex,
+            }
+        } else {
+            WallPass::Solid {
+                pegged: ld.flags.contains(LinedefFlags::LOWER_UNPEGGED),
+                world_top,
+                world_bottom,
+            }
+        }
     }
 
     fn build_spans(&mut self, edge: &Edge) {
-        // Resolve sidedefs / sectors ------------------------------------------------
         let seg = &self.level.segs[edge.seg_idx as usize];
-        let ld = &self.level.linedefs[seg.linedef as usize];
-        let (sd_f, sd_b) = if seg.dir == 0 {
-            (ld.right_sidedef, ld.left_sidedef)
-        } else {
-            (ld.left_sidedef, ld.right_sidedef)
-        };
-
-        let sd_front = sd_f
-            .and_then(|i| self.level.sidedefs.get(i as usize))
-            .expect("front sidedef must exist");
+        let (sd_front, sec_back_opt, ld) = self.sectors_for_seg(seg);
         let sec_front = &self.level.sectors[sd_front.sector as usize];
 
-        let (have_back, sec_back) = if let Some(idx) = sd_b {
-            if let Some(sd) = self.level.sidedefs.get(idx as usize) {
-                (true, &self.level.sectors[sd.sector as usize])
-            } else {
-                (false, sec_front)
-            }
-        } else {
-            (false, sec_front)
-        };
+        let pass = self.decide_pass(sd_front, sec_front, sec_back_opt, ld);
+
+        let sd_y_off = sd_front.y_off as f32;
+        let light = sec_front.light;
+        let middle_tex = sd_front.middle;
 
         let floor_vis = if (sec_front.floor_h as f32) < self.view.view_z {
             self.visplane_map.find(
@@ -158,107 +196,65 @@ impl<R: Renderer> Engine<R> {
             NO_PLANE
         };
 
-        let worldtop = sec_front.ceil_h;
-        let worldbottom = sec_front.floor_h;
-        let sd_y_off = sd_front.y_off as f32;
-        let light = sec_front.light;
-        // Decide which spans to draw -----------------------------------------------
-        if have_back && ld.flags.contains(LinedefFlags::TWO_SIDED) {
-            let worldhigh = sec_back.ceil_h;
-            let worldlow = sec_back.floor_h;
-
-            let mut markfloor;
-            let mut markceiling;
-
-            if worldlow != worldbottom
-                || sec_back.floor_tex != sec_front.floor_tex
-                || sec_back.light != sec_front.light
-            {
-                // not the same plane on both sides
-                markfloor = true;
-            } else {
-                // same plane on both sides
-                markfloor = false;
+        match pass {
+            WallPass::Solid {
+                pegged,
+                world_top,
+                world_bottom,
+            } => {
+                self.push_wall(
+                    edge,
+                    world_top as f32,
+                    world_bottom as f32,
+                    light,
+                    middle_tex,
+                    ClipKind::Solid,
+                    pegged,
+                    sd_y_off,
+                    ceil_vis,
+                    floor_vis,
+                );
+                self.add_solid_seg(edge.x_l, edge.x_r);
             }
-
-            if worldhigh != worldtop
-                || sec_back.ceil_tex != sec_front.ceil_tex
-                || sec_back.light != sec_front.light
-            {
-                markceiling = true;
-            } else {
-                // same plane on both sides
-                markceiling = false;
-            }
-
-            if worldhigh <= worldbottom || worldlow >= worldtop {
-                // closed door
-                markceiling = true;
-                markfloor = true;
-            }
-
-            let cur_floor_vis = if markfloor { floor_vis } else { NO_PLANE };
-            let cur_ceil_vis = if markceiling { ceil_vis } else { NO_PLANE };
-
-            let pegged = ld.flags.contains(LinedefFlags::UPPER_UNPEGGED);
-
-            // ─ upper portal
-            let upper_floor_h = worldhigh.min(worldtop);
-            let upper_tex = if worldhigh < worldtop {
-                sd_front.upper
-            } else {
-                NO_TEXTURE
-            };
-
-            // ─ lower portal
-            let lower_ceil_h = worldlow.max(worldbottom);
-            let lower_tex = if worldlow > worldbottom {
-                sd_front.lower
-            } else {
-                NO_TEXTURE
-            };
-
-            self.push_wall(
-                edge,
-                worldtop as f32,
-                upper_floor_h as f32,
-                light,
+            WallPass::TwoSided {
+                pegged,
+                world_top,
+                world_bottom,
+                mark_floor,
+                mark_ceiling,
+                upper_floor_h,
                 upper_tex,
-                ClipKind::Upper,
-                pegged,
-                sd_y_off,
-                cur_ceil_vis,
-                NO_PLANE,
-            );
-
-            self.push_wall(
-                edge,
-                lower_ceil_h as f32,
-                worldbottom as f32,
-                light,
+                lower_ceil_h,
                 lower_tex,
-                ClipKind::Lower,
-                pegged,
-                sd_y_off,
-                NO_PLANE,
-                cur_floor_vis,
-            );
-        } else {
-            // ─ one-sided wall
-            let pegged = ld.flags.contains(LinedefFlags::LOWER_UNPEGGED);
-            self.push_wall(
-                edge,
-                worldtop as f32,
-                worldbottom as f32,
-                light,
-                sd_front.middle,
-                ClipKind::Solid,
-                pegged,
-                sd_front.y_off as f32,
-                ceil_vis,
-                floor_vis,
-            );
-            self.add_solid_seg(edge.x_l, edge.x_r);
+            } => {
+                let cur_floor_vis = if mark_floor { floor_vis } else { NO_PLANE };
+                let cur_ceil_vis = if mark_ceiling { ceil_vis } else { NO_PLANE };
+                self.push_wall(
+                    edge,
+                    world_top as f32,
+                    upper_floor_h as f32,
+                    light,
+                    upper_tex,
+                    ClipKind::Upper,
+                    pegged,
+                    sd_y_off,
+                    cur_ceil_vis,
+                    NO_PLANE,
+                );
+
+                self.push_wall(
+                    edge,
+                    lower_ceil_h as f32,
+                    world_bottom as f32,
+                    light,
+                    lower_tex,
+                    ClipKind::Lower,
+                    pegged,
+                    sd_y_off,
+                    NO_PLANE,
+                    cur_floor_vis,
+                );
+            }
         }
     }
 
@@ -275,31 +271,12 @@ impl<R: Renderer> Engine<R> {
         ceil_vis: VisplaneId,
         floor_vis: VisplaneId,
     ) {
-        let texturemid_mu = match kind {
-            // Mid texture: peg to ceiling unless LOWER_UNPEGGED
-            ClipKind::Solid => {
-                if pegged {
-                    (floor_h - self.view.view_z) + y_off
-                } else {
-                    (ceil_h - self.view.view_z) + y_off
-                }
-            }
-            // Upper portal: peg to ceiling unless UPPER_UNPEGGED
-            ClipKind::Upper => {
-                if pegged {
-                    (floor_h - self.view.view_z) + y_off
-                } else {
-                    (ceil_h - self.view.view_z) + y_off
-                }
-            }
-            // Lower portal: peg to floor unless UPPER_UNPEGGED
-            ClipKind::Lower => {
-                if pegged {
-                    (ceil_h - self.view.view_z) + y_off
-                } else {
-                    (floor_h - self.view.view_z) + y_off
-                }
-            }
+        let texturemid_mu = match (kind, pegged) {
+            (ClipKind::Lower, true) => (ceil_h - self.view.view_z) + y_off,
+            (ClipKind::Lower, false) => (floor_h - self.view.view_z) + y_off,
+            // everything else (Solid + Upper):
+            (_, true) => (floor_h - self.view.view_z) + y_off,
+            (_, false) => (ceil_h - self.view.view_z) + y_off,
         };
 
         self.emit_and_clip(
@@ -338,23 +315,26 @@ impl<R: Renderer> Engine<R> {
         ceil_vis: VisplaneId,
         floor_vis: VisplaneId,
     ) {
-        // 1 ─── draw first, while bands still contain the old limits
+        // draw first, while bands still contain the old limits
         if proto.tex_id != NO_TEXTURE {
             self.renderer
                 .draw_wall(proto, &self.clip_bands, &self.texture_bank);
         }
 
-        // 2 ─── now update bands for every column that was really drawn
-        let step = ColumnStep::from_span(proto);
-        let mut cur = ColumnCursor::from_span(proto);
+        // now update bands for every column that was really drawn
+        let w = (proto.x_end - proto.x_start).max(1) as f32;
+        let dyt = (proto.y_top1 - proto.y_top0) / w;
+        let dyb = (proto.y_bot1 - proto.y_bot0) / w;
+        let mut y_t = proto.y_top0;
+        let mut y_b = proto.y_bot0;
 
         for x in proto.x_start..=proto.x_end {
             let col = x as usize;
 
             if self.clip_bands.ceil[col] < self.clip_bands.floor[col] {
                 // part of the wall that was visible in this column
-                let y0 = cur.y_t.max((self.clip_bands.ceil[col] + 1) as f32).ceil() as i16;
-                let y1 = cur.y_b.min((self.clip_bands.floor[col] - 1) as f32).floor() as i16;
+                let y0 = y_t.max((self.clip_bands.ceil[col] + 1) as f32).ceil() as i16;
+                let y1 = y_b.min((self.clip_bands.floor[col] - 1) as f32).floor() as i16;
 
                 if let Some(vp) = self.visplane_map.get(ceil_vis) {
                     let top = self.clip_bands.ceil[col] + 1;
@@ -393,7 +373,8 @@ impl<R: Renderer> Engine<R> {
                 }
             }
 
-            cur.step(&step);
+            y_t += dyt;
+            y_b += dyb;
         }
     }
 

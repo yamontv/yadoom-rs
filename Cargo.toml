@@ -16,3 +16,7 @@ regex     = "1"
 once_cell = "1"
 bitflags = "2.9.1"
 ordered-float = "5.0.0"
+
+[profile.release]
+debug = true
+strip = false
