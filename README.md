@@ -1,6 +1,6 @@
 # yadoom-rs
 
-*A Doom renderer written in safe Rust.*
+*Yet Another Doom renderer written in safe Rust.*
 
 ![Screenshot of E1M1](./docs/screenshot_e1m1.png)
 
