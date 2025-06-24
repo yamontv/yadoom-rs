@@ -11,7 +11,7 @@ pub struct ClipBands {
     pub floor: Vec<i16>,
 }
 
-#[derive(Default)]
+#[derive(Default, PartialEq, Debug)]
 pub struct ClipRange {
     pub first: i32,
     pub last: i32,
@@ -120,7 +120,7 @@ impl Software {
         // 2) merge any overlapping or adjacent segments:
         let mut new_first = first;
         let mut new_last = last;
-        while i < self.solid_segs.len() && self.solid_segs[i].first <= last + 1 {
+        while i < self.solid_segs.len() && self.solid_segs[i].first <= new_last + 1 {
             new_first = new_first.min(self.solid_segs[i].first);
             new_last = new_last.max(self.solid_segs[i].last);
             self.solid_segs.remove(i);
@@ -133,6 +133,38 @@ impl Software {
                 first: new_first,
                 last: new_last,
             },
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ClipRange, Software}; // or whatever your types are called
+
+    /// Regression test for the “new_last not updated” bug in add_solid_seg().
+    #[test]
+    fn merge_chain_of_touching_spans() {
+        let mut sw = Software::default();
+        // helper: build the initial solid‐seg list
+        let segs = vec![
+            ClipRange { first: 0, last: 5 },
+            ClipRange { first: 8, last: 12 },
+            ClipRange {
+                first: 13,
+                last: 20,
+            },
+        ];
+
+        sw.solid_segs = segs;
+
+        // new wall span that should close BOTH gaps (5-6 and 12-13)
+        sw.add_solid_seg(6, 9);
+
+        // after the fix we expect ONE merged span covering 0‥20
+        let expected = vec![ClipRange { first: 0, last: 20 }];
+        assert_eq!(
+            sw.solid_segs, expected,
+            "solid_segs should be fully coalesced after inserting a bridging span"
         );
     }
 }

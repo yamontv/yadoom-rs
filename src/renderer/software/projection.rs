@@ -38,7 +38,8 @@ impl Software {
         let sx2 = self.half_w + p2.x * self.focal / p2.y;
 
         // Entirely to the left OR right of the viewport?
-        if (sx1 < 0.0 && sx2 < 0.0) || (sx1 >= self.width_f && sx2 >= self.width_f) {
+        let right_lim = self.width_f - 1.0;
+        if (sx1 < 0.0 && sx2 < 0.0) || (sx1 > right_lim && sx2 > right_lim) {
             return None;
         }
 
@@ -56,7 +57,7 @@ impl Software {
         // ──────────────────────────────────────────────────────────────────────
         let x_l = sx1.max(0.0) as i32;
         let x_r = sx2.min(self.width_f - 1.0) as i32;
-        if x_l > x_r {
+        if x_l >= x_r {
             return None;
         }
 
@@ -76,14 +77,18 @@ impl Software {
         // ──────────────────────────────────────────────────────────────────────
         // 7. perspective coefficients for the surviving span
         // ──────────────────────────────────────────────────────────────────────
+        let span = sx2 - sx1;
+        if span <= 1.0 {
+            return None;
+        }
         let invz_p1 = 1.0 / p1.y;
         let invz_p2 = 1.0 / p2.y;
         let wall_len = (v2 - v1).length();
         let uoz_p1 = t1 * wall_len * invz_p1;
         let uoz_p2 = t2 * wall_len * invz_p2;
 
-        let frac_l = (x_l as f32 - sx1) / (sx2 - sx1);
-        let frac_r = (x_r as f32 - sx1) / (sx2 - sx1);
+        let frac_l = (x_l as f32 - sx1) / span;
+        let frac_r = (x_r as f32 - sx1) / span;
 
         Some(Edge {
             x_l,
