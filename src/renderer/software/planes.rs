@@ -140,7 +140,7 @@ impl PlaneMap {
         plane.max_x = unionh;
 
         // use the same one
-        return true;
+        true
     }
 }
 
@@ -173,25 +173,14 @@ impl Software {
                         }
                     } else if xs != u16::MAX {
                         // run ends
-                        self.emit_span(
-                            &cam_fwd,
-                            &cam_right,
-                            &cam_base,
-                            vp,
-                            y as u16,
-                            xs,
-                            x - 1,
-                            bank,
-                        );
+                        self.emit_span(&cam_fwd, &cam_right, &cam_base, vp, y, xs, x - 1, bank);
                         xs = u16::MAX;
                     }
                 }
 
                 if xs != u16::MAX {
                     // tail-run
-                    self.emit_span(
-                        &cam_fwd, &cam_right, &cam_base, vp, y as u16, xs, vp.max_x, bank,
-                    );
+                    self.emit_span(&cam_fwd, &cam_right, &cam_base, vp, y, xs, vp.max_x, bank);
                 }
             }
         }
@@ -286,7 +275,7 @@ impl Software {
         // -------- render in small groups to reuse a single reciprocal ----------
         const G: usize = 8; // group size
         let mut x = span.x_start as usize;
-        while x + (G as usize) - 1 <= span.x_end as usize {
+        while x + G - 1 <= span.x_end as usize {
             // one reciprocal gives ≈7–8 ulp accuracy after one NR step
             let mut w = iz.recip(); // fast (≈4 cycles)
             w = w * (2.0 - iz * w); // Newton–Raphson refine

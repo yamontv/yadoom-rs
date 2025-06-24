@@ -1,10 +1,10 @@
 use crate::{
-    renderer::SegmentCS,
     renderer::software::{
         Software,
         planes::{NO_PLANE, VisplaneId},
         projection::Edge,
     },
+    world::geometry::{Level, Linedef, LinedefFlags, Sector, Seg, SegmentId, Sidedef},
     world::texture::{NO_TEXTURE, Texture, TextureBank, TextureId},
 };
 
@@ -92,6 +92,7 @@ enum WallPass {
         pegged: bool,
         world_top: f32,
         world_bottom: f32,
+        middle_texture: TextureId,
     },
     TwoSided {
         pegged: bool,
@@ -107,12 +108,41 @@ enum WallPass {
 }
 
 impl Software {
-    pub fn draw_edge(&mut self, edge: Edge, segment: &SegmentCS, texture_bank: &TextureBank) {
-        let light = (segment.front_sector.light * 255.0) as i16;
-        let floor_vis = if segment.front_sector.floor_h < self.view_z {
+    fn sectors_for_seg<'l>(
+        &self,
+        seg: &Seg,
+        level: &'l Level,
+    ) -> (&'l Sidedef, Option<&'l Sector>, &'l Linedef) {
+        let ld = &level.linedefs[seg.linedef as usize];
+        let (sd_front_idx, sd_back_idx) = if seg.dir == 0 {
+            (ld.right_sidedef, ld.left_sidedef)
+        } else {
+            (ld.left_sidedef, ld.right_sidedef)
+        };
+        let front = &level.sidedefs[sd_front_idx.unwrap() as usize];
+        let back = sd_back_idx
+            .and_then(|i| level.sidedefs.get(i as usize))
+            .map(|sd| &level.sectors[sd.sector as usize]);
+        (front, back, ld)
+    }
+
+    pub fn draw_edge(
+        &mut self,
+        edge: Edge,
+        seg_idx: SegmentId,
+        level: &Level,
+        texture_bank: &TextureBank,
+    ) {
+        let seg = &level.segs[seg_idx as usize];
+        let (sd_front, sec_back_opt, ld) = self.sectors_for_seg(seg, level);
+        let sec_front = &level.sectors[sd_front.sector as usize];
+
+        let light = (sec_front.light * 255.0) as i16;
+
+        let floor_vis = if sec_front.floor_h < self.view_z {
             self.visplane_map.find(
-                segment.front_sector.floor_h as i16,
-                segment.front_sector.floor_tex,
+                sec_front.floor_h as i16,
+                sec_front.floor_tex,
                 light,
                 edge.x_l.max(0) as u16,
                 edge.x_r.max(0) as u16,
@@ -121,10 +151,10 @@ impl Software {
             NO_PLANE
         };
 
-        let ceil_vis = if (segment.front_sector.ceil_h as f32) > self.view_z {
+        let ceil_vis = if sec_front.ceil_h > self.view_z {
             self.visplane_map.find(
-                segment.front_sector.ceil_h as i16,
-                segment.front_sector.ceil_tex,
+                sec_front.ceil_h as i16,
+                sec_front.ceil_tex,
                 light,
                 edge.x_l.max(0) as u16,
                 edge.x_r.max(0) as u16,
@@ -133,23 +163,24 @@ impl Software {
             NO_PLANE
         };
 
-        let pass = self.decide_pass(segment);
+        let pass = self.decide_pass(sec_front, sec_back_opt, sd_front, ld);
 
         match pass {
             WallPass::Solid {
                 pegged,
                 world_top,
                 world_bottom,
+                middle_texture,
             } => {
                 self.push_wall(
                     &edge,
-                    world_top as f32,
-                    world_bottom as f32,
-                    segment.front_sector.light,
-                    segment.middle_texture,
+                    world_top,
+                    world_bottom,
+                    sec_front.light,
+                    middle_texture,
                     ClipKind::Solid,
                     pegged,
-                    segment.y_offset,
+                    sd_front.y_off,
                     ceil_vis,
                     floor_vis,
                     texture_bank,
@@ -171,13 +202,13 @@ impl Software {
                 let cur_ceil_vis = if mark_ceiling { ceil_vis } else { NO_PLANE };
                 self.push_wall(
                     &edge,
-                    world_top as f32,
-                    upper_floor_h as f32,
-                    segment.front_sector.light,
+                    world_top,
+                    upper_floor_h,
+                    sec_front.light,
                     upper_tex,
                     ClipKind::Upper,
                     pegged,
-                    segment.y_offset,
+                    sd_front.y_off,
                     cur_ceil_vis,
                     NO_PLANE,
                     texture_bank,
@@ -185,13 +216,13 @@ impl Software {
 
                 self.push_wall(
                     &edge,
-                    lower_ceil_h as f32,
-                    world_bottom as f32,
-                    segment.front_sector.light,
+                    lower_ceil_h,
+                    world_bottom,
+                    sec_front.light,
                     lower_tex,
                     ClipKind::Lower,
                     pegged,
-                    segment.y_offset,
+                    sd_front.y_off,
                     NO_PLANE,
                     cur_floor_vis,
                     texture_bank,
@@ -200,20 +231,27 @@ impl Software {
         }
     }
 
-    fn decide_pass(&self, segment: &SegmentCS) -> WallPass {
-        let world_top = segment.front_sector.ceil_h;
-        let world_bottom = segment.front_sector.floor_h;
+    fn decide_pass(
+        &self,
+        sec_front: &Sector,
+        sec_back_opt: Option<&Sector>,
+        sd_front: &Sidedef,
+        ld: &Linedef,
+    ) -> WallPass {
+        let world_top = sec_front.ceil_h;
+        let world_bottom = sec_front.floor_h;
 
-        if segment.two_sided {
-            let worldhigh = segment.back_sector.ceil_h;
-            let worldlow = segment.back_sector.floor_h;
+        if sec_back_opt.is_some() && ld.flags.contains(LinedefFlags::TWO_SIDED) {
+            let sec_back = sec_back_opt.unwrap();
+            let worldhigh = sec_back.ceil_h;
+            let worldlow = sec_back.floor_h;
 
             let mut mark_floor;
             let mut mark_ceiling;
 
             if worldlow != world_bottom
-                || segment.back_sector.floor_tex != segment.front_sector.floor_tex
-                || segment.back_sector.light != segment.front_sector.light
+                || sec_back.floor_tex != sec_front.floor_tex
+                || sec_back.light != sec_front.light
             {
                 // not the same plane on both sides
                 mark_floor = true;
@@ -223,8 +261,8 @@ impl Software {
             }
 
             if worldhigh != world_top
-                || segment.back_sector.ceil_tex != segment.front_sector.ceil_tex
-                || segment.back_sector.light != segment.front_sector.light
+                || sec_back.ceil_tex != sec_front.ceil_tex
+                || sec_back.light != sec_front.light
             {
                 mark_ceiling = true;
             } else {
@@ -241,7 +279,7 @@ impl Software {
             // ─ upper portal
             let upper_floor_h = worldhigh.min(world_top);
             let upper_tex = if worldhigh < world_top {
-                segment.upper_texture
+                sd_front.upper
             } else {
                 NO_TEXTURE
             };
@@ -249,12 +287,12 @@ impl Software {
             // ─ lower portal
             let lower_ceil_h = worldlow.max(world_bottom);
             let lower_tex = if worldlow > world_bottom {
-                segment.low_texture
+                sd_front.lower
             } else {
                 NO_TEXTURE
             };
             WallPass::TwoSided {
-                pegged: segment.upper_unpegged,
+                pegged: ld.flags.contains(LinedefFlags::UPPER_UNPEGGED),
                 world_top,
                 world_bottom,
                 mark_floor,
@@ -266,9 +304,10 @@ impl Software {
             }
         } else {
             WallPass::Solid {
-                pegged: segment.lower_unpegged,
+                pegged: ld.flags.contains(LinedefFlags::LOWER_UNPEGGED),
                 world_top,
                 world_bottom,
+                middle_texture: sd_front.middle,
             }
         }
     }

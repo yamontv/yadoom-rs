@@ -1,7 +1,6 @@
-use glam::Vec2;
-
 use crate::renderer::software::Software;
 use crate::world::camera::Camera;
+use crate::world::geometry::{Level, SegmentId};
 
 #[derive(Clone, Copy)]
 pub struct Edge {
@@ -14,9 +13,13 @@ pub struct Edge {
 }
 
 impl Software {
-    pub fn project_seg(&self, v1: &Vec2, v2: &Vec2, camera: &Camera) -> Option<Edge> {
+    pub fn project_seg(&self, seg_idx: SegmentId, level: &Level, camera: &Camera) -> Option<Edge> {
+        let seg = &level.segs[seg_idx as usize];
+        let v1 = &level.vertices[seg.v1 as usize].pos;
+        let v2 = &level.vertices[seg.v2 as usize].pos;
+
         // ──────────────────────────────────────────────────────────────────────
-        // 1. camera-space endpoints (you already had this)
+        // 1. camera-space endpoints
         // ──────────────────────────────────────────────────────────────────────
         let mut p1 = camera.to_cam(v1);
         let mut p2 = camera.to_cam(v2);
@@ -32,7 +35,7 @@ impl Software {
         }
 
         // ──────────────────────────────────────────────────────────────────────
-        // 3. horizontal FOV / screen-x mapping  (tightened test)
+        // 3. horizontal FOV / screen-x mapping
         // ──────────────────────────────────────────────────────────────────────
         let sx1 = self.half_w + p1.x * self.focal / p1.y;
         let sx2 = self.half_w + p2.x * self.focal / p2.y;
@@ -62,7 +65,7 @@ impl Software {
         }
 
         // ──────────────────────────────────────────────────────────────────────
-        // 6. Step 8 —  solid-seg occlusion test
+        // 6. solid-seg occlusion test
         // ──────────────────────────────────────────────────────────────────────
         // Invariant: solid_segs is sorted; we can bail as soon as we find a
         // span whose `last` ≥ x_r.

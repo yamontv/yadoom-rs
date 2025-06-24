@@ -3,6 +3,7 @@ use glam::Vec2;
 
 use crate::world::{
     camera::Camera,
+    geometry::{Level, SegmentId},
     texture::{TextureBank, TextureId},
 };
 
@@ -39,7 +40,8 @@ pub trait Renderer {
 
     fn draw_segments(
         &mut self,
-        segments: &Vec<SegmentCS>,
+        segments: &[SegmentId],
+        level: &Level,
         camera: &Camera,
         texture_bank: &TextureBank,
     );

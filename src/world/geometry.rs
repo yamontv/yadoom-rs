@@ -3,6 +3,8 @@ use glam::Vec2;
 
 use crate::world::texture::TextureId;
 
+pub type SegmentId = u16;
+
 /// Runtime snapshot of one map (immutable after load).
 #[derive(Debug)]
 pub struct Level {
@@ -63,8 +65,8 @@ pub struct Linedef {
 
 #[derive(Clone, Debug)]
 pub struct Sidedef {
-    pub x_off: i16,
-    pub y_off: i16,
+    pub x_off: f32,
+    pub y_off: f32,
     pub upper: TextureId, // texture names remain 8-byte arrays
     pub lower: TextureId,
     pub middle: TextureId,
@@ -90,7 +92,7 @@ pub struct Seg {
 #[derive(Clone, Debug)]
 pub struct Subsector {
     pub seg_count: u16,
-    pub first_seg: u16,
+    pub first_seg: SegmentId,
 }
 
 #[derive(Clone, Debug)]
@@ -111,8 +113,8 @@ pub struct Node {
 
 #[derive(Clone, Debug)]
 pub struct Sector {
-    pub floor_h: i16,
-    pub ceil_h: i16,
+    pub floor_h: f32,
+    pub ceil_h: f32,
     pub floor_tex: TextureId,
     pub ceil_tex: TextureId,
     pub light: f32,

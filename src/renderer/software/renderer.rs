@@ -1,7 +1,8 @@
 use crate::{
     renderer::software::planes::PlaneMap,
-    renderer::{Renderer, Rgba, SegmentCS},
+    renderer::{Renderer, Rgba},
     world::camera::Camera,
+    world::geometry::{Level, SegmentId},
     world::texture::TextureBank,
 };
 
@@ -62,16 +63,17 @@ impl Renderer for Software {
 
     fn draw_segments(
         &mut self,
-        segments: &Vec<SegmentCS>,
+        segments: &[SegmentId],
+        level: &Level,
         camera: &Camera,
         texture_bank: &TextureBank,
     ) {
         self.focal = camera.screen_scale(self.width);
         self.view_z = camera.pos.z;
 
-        for segment in segments.iter() {
-            if let Some(edge) = self.project_seg(&segment.vertex1, &segment.vertex2, camera) {
-                self.draw_edge(edge, segment, texture_bank);
+        for segment in segments.iter().copied() {
+            if let Some(edge) = self.project_seg(segment, level, camera) {
+                self.draw_edge(edge, segment, level, texture_bank);
             }
         }
         self.flush_planes(camera, texture_bank);

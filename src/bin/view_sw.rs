@@ -1,10 +1,9 @@
 use minifb::{Key, Window, WindowOptions};
 use std::time::{Duration, Instant};
 use yadoom_rs::{
-    engine::Engine,
     renderer::{Renderer, software::Software},
-    wad::{Wad, loader},
-    world::{camera::Camera, texture::TextureBank},
+    wad::{raw::Wad, loader},
+    world::{camera::Camera, geometry::SegmentId, texture::TextureBank},
 };
 
 const W: usize = 1280;
@@ -31,8 +30,6 @@ fn main() -> anyhow::Result<()> {
     //     90_f32.to_radians(),
     // );
 
-    let mut engine = Engine::new(level);
-
     let mut renderer = Software::default();
 
     let mut win = Window::new("Rust Doom Software Render", W, H, WindowOptions::default())?;
@@ -42,6 +39,8 @@ fn main() -> anyhow::Result<()> {
     let mut acc_time = Duration::ZERO; // cumulated render time
     let mut acc_frames = 0usize; // frames in the current window
     let mut last_print = Instant::now(); // when we printed last
+
+    let mut active_segments: Vec<SegmentId> = Vec::new();
 
     while win.is_open() && !win.is_key_down(Key::Escape) {
         let t0 = Instant::now(); // ┌─ frame timer start
@@ -74,9 +73,9 @@ fn main() -> anyhow::Result<()> {
 
         /* draw */
         renderer.begin_frame(W, H);
-        camera.pos.z = engine.floor_height_under_player(camera.pos.truncate()) + 41.0;
-        engine.build_frame(&camera);
-        renderer.draw_segments(&engine.segments, &camera, &texture_bank);
+        camera.pos.z = level.floor_height_under_player(camera.pos.truncate()) + 41.0;
+        level.fill_active_segments(&camera, &mut active_segments);
+        renderer.draw_segments(&active_segments, &level, &camera, &texture_bank);
         renderer.end_frame(|fb, w, h| {
             // ─────────── accumulate & report every ~3 s ────────────────────
             acc_time += t0.elapsed();

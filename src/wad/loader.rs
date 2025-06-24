@@ -8,7 +8,8 @@
 // ──────────────────────────────────────────────────────────────────────────
 
 use crate::{
-    wad::{Wad, WadError, level as raw},
+    wad::level as raw_level,
+    wad::raw::{Wad, WadError},
     world::{
         geometry as geo,
         texture::{Colormap, NO_TEXTURE, Palette, Texture, TextureBank, TextureError, TextureId},
@@ -25,7 +26,7 @@ pub enum LoadError {
     Wad(#[from] WadError),
 
     #[error(transparent)]
-    Level(#[from] raw::LevelError),
+    Level(#[from] raw_level::LevelError),
 
     #[error(transparent)]
     Texture(#[from] TextureError),
@@ -112,8 +113,8 @@ pub fn load_level(
         .into_iter()
         .map(|s| {
             Ok(Sidedef {
-                x_off: s.x_off,
-                y_off: s.y_off,
+                x_off: s.x_off as f32,
+                y_off: s.y_off as f32,
                 upper: tex_id(&s.top_tex)?,
                 lower: tex_id(&s.bottom_tex)?,
                 middle: tex_id(&s.mid_tex)?,
@@ -127,8 +128,8 @@ pub fn load_level(
         .into_iter()
         .map(|s| {
             Ok(Sector {
-                floor_h: s.floor_h,
-                ceil_h: s.ceil_h,
+                floor_h: s.floor_h as f32,
+                ceil_h: s.ceil_h as f32,
                 floor_tex: tex_id(&s.floor_tex)?,
                 ceil_tex: tex_id(&s.ceil_tex)?,
                 light: f32::from(s.light >> 3) / 31.0,
@@ -158,7 +159,7 @@ pub fn load_level(
 /*====================================================================*/
 mod raw_to_geo {
     use super::*;
-    pub fn thing_from(r: raw::RawThing) -> geo::Thing {
+    pub fn thing_from(r: raw_level::RawThing) -> geo::Thing {
         let min_skill = match r.options & 0x0007 {
             0x0001 => 1,
             0x0002 => 2,
@@ -175,7 +176,7 @@ mod raw_to_geo {
         }
     }
 
-    pub fn linedef_from(r: raw::RawLinedef) -> geo::Linedef {
+    pub fn linedef_from(r: raw_level::RawLinedef) -> geo::Linedef {
         geo::Linedef {
             v1: r.v1 as u16,
             v2: r.v2 as u16,
@@ -187,12 +188,12 @@ mod raw_to_geo {
         }
     }
 
-    pub fn vertex_from(r: raw::RawVertex) -> geo::Vertex {
+    pub fn vertex_from(r: raw_level::RawVertex) -> geo::Vertex {
         geo::Vertex {
             pos: vec2(r.x as f32, r.y as f32),
         }
     }
-    pub fn seg_from(r: raw::RawSeg) -> geo::Seg {
+    pub fn seg_from(r: raw_level::RawSeg) -> geo::Seg {
         geo::Seg {
             v1: r.v1 as u16,
             v2: r.v2 as u16,
@@ -201,7 +202,7 @@ mod raw_to_geo {
             offset: r.offset,
         }
     }
-    pub fn subsector_from(r: raw::RawSubsector) -> geo::Subsector {
+    pub fn subsector_from(r: raw_level::RawSubsector) -> geo::Subsector {
         geo::Subsector {
             seg_count: r.seg_count as u16,
             first_seg: r.first_seg as u16,
@@ -221,7 +222,7 @@ mod raw_to_geo {
         }
     }
 
-    pub fn node_from(r: raw::RawNode) -> geo::Node {
+    pub fn node_from(r: raw_level::RawNode) -> geo::Node {
         geo::Node {
             x: r.x,
             y: r.y,

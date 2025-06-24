@@ -1,4 +1,4 @@
-use crate::wad::{Wad, WadError};
+use crate::wad::raw::{Wad, WadError};
 use bincode::Decode;
 use once_cell::sync::Lazy;
 use regex::Regex;
