@@ -2,7 +2,7 @@ use minifb::{Key, Window, WindowOptions};
 use std::time::{Duration, Instant};
 use yadoom_rs::{
     engine::Engine,
-    renderer::software::Software,
+    renderer::{Renderer, software::Software},
     wad::{Wad, loader},
     world::{camera::Camera, texture::TextureBank},
 };
@@ -24,14 +24,16 @@ fn main() -> anyhow::Result<()> {
     level.finalise_bsp();
 
     let player = level.things.iter().find(|t| t.type_id == 1).unwrap();
-    let camera = Camera::new(player.pos.extend(41.0), player.angle, 90_f32.to_radians());
+    let mut camera = Camera::new(player.pos.extend(41.0), player.angle, 90_f32.to_radians());
     // let camera = Camera::new(
     //     glam::Vec3::new(2933.7625, -2822.0237, 41.0),
     //     5.0714335,
     //     90_f32.to_radians(),
     // );
 
-    let mut engine = Engine::new(Software::default(), level, camera, texture_bank, W, H);
+    let mut engine = Engine::new(level);
+
+    let mut renderer = Software::default();
 
     let mut win = Window::new("Rust Doom Software Render", W, H, WindowOptions::default())?;
     win.set_target_fps(35);
@@ -65,13 +67,17 @@ fn main() -> anyhow::Result<()> {
             yaw -= TURN * DT;
         }
 
-        engine.camera.turn(yaw);
-        engine.camera.step(dy, dx);
+        camera.turn(yaw);
+        camera.step(dy, dx);
 
         // dbg!(engine.camera);
 
         /* draw */
-        engine.render_frame(|fb, w, h| {
+        renderer.begin_frame(W, H);
+        camera.pos.z = engine.floor_height_under_player(camera.pos.truncate()) + 41.0;
+        engine.build_frame(&camera);
+        renderer.draw_segments(&engine.segments, &camera, &texture_bank);
+        renderer.end_frame(|fb, w, h| {
             // ─────────── accumulate & report every ~3 s ────────────────────
             acc_time += t0.elapsed();
             acc_frames += 1;

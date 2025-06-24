@@ -6,9 +6,9 @@ use glam::{Vec2, Vec3, vec2};
 /// * `z` holds eye height above floor, not absolute altitude.
 #[derive(Clone, Copy, Debug)]
 pub struct Camera {
-    pos: Vec3, // x,y in map-units; z = eye height above floor
+    pub pos: Vec3, // x,y in map-units; z = eye height above floor
     pub yaw: f32,  // radians (0 = east, counter-clockwise)
-    fov: f32,  // horizontal FoV (radians, typical 90–110°)
+    pub fov: f32,  // horizontal FoV (radians, typical 90–110°)
 }
 
 impl Camera {
@@ -17,17 +17,11 @@ impl Camera {
         Self { pos, yaw, fov }
     }
 
-    /// World-space eye position: (x, y) = map units, z = eye height above floor.
-    #[inline]
-    pub fn pos(&self) -> Vec3 {
-        self.pos
-    }
-
     /// Transform an X–Y point `p` into camera‐local coords:
     ///  .x = lateral offset (+ right)
     ///  .y = depth along forward axis
     #[inline]
-    pub fn to_cam(&self, p: Vec2) -> Vec2 {
+    pub fn to_cam(&self, p: &Vec2) -> Vec2 {
         // Translate into camera space
         let dx = p.x - self.pos.x;
         let dy = p.y - self.pos.y;
@@ -117,15 +111,15 @@ mod tests {
     fn to_cam_axes_align() {
         let cam = Camera::new(Vec3::ZERO, 0.0, FRAC_PI_2);
         // Point straight ahead at (10, 0) → (lateral=0, forward=10)
-        assert!((cam.to_cam(vec2(10.0, 0.0)) - vec2(0.0, 10.0)).length() < 1e-5);
+        assert!((cam.to_cam(&vec2(10.0, 0.0)) - vec2(0.0, 10.0)).length() < 1e-5);
         // Point to the left at (0, 5) → (lateral = -5, forward = 0)
-        assert!((cam.to_cam(vec2(0.0, 5.0)) - vec2(-5.0, 0.0)).length() < 1e-5);
+        assert!((cam.to_cam(&vec2(0.0, 5.0)) - vec2(-5.0, 0.0)).length() < 1e-5);
     }
 
     #[test]
     fn to_cam_rotated_yaw() {
         let cam = Camera::new(Vec3::ZERO, FRAC_PI_2, FRAC_PI_2);
         // Yaw = 90°: forward is +Y; (0,10) → (lateral=0, forward=10)
-        assert!((cam.to_cam(vec2(0.0, 10.0)) - vec2(0.0, 10.0)).length() < 1e-5);
+        assert!((cam.to_cam(&vec2(0.0, 10.0)) - vec2(0.0, 10.0)).length() < 1e-5);
     }
 }

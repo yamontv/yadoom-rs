@@ -94,12 +94,18 @@ pub struct Subsector {
 }
 
 #[derive(Clone, Debug)]
+pub struct Aabb {
+    pub min: Vec2, // (x_min, z_min)
+    pub max: Vec2, // (x_max, z_max)
+}
+
+#[derive(Clone, Debug)]
 pub struct Node {
     pub x: i16,
     pub y: i16,
     pub dx: i16,
     pub dy: i16,
-    pub bbox: [[i16; 4]; 2],
+    pub bbox: [Aabb; 2],
     pub child: [u16; 2],
 }
 
@@ -109,7 +115,7 @@ pub struct Sector {
     pub ceil_h: i16,
     pub floor_tex: TextureId,
     pub ceil_tex: TextureId,
-    pub light: i16,
+    pub light: f32,
     pub special: i16,
     pub tag: i16,
 }

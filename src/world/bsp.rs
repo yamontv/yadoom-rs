@@ -13,7 +13,7 @@
 //! ```
 
 use crate::world::geometry::{Level, Node};
-use glam::{Vec2, vec2};
+use glam::Vec2;
 
 pub const CHILD_MASK: u16 = 0x7FFF;
 
@@ -94,31 +94,12 @@ impl Level {
 // ──────────────────────────────────────────────────────────────────────────
 //                       Node geometry helpers
 // ──────────────────────────────────────────────────────────────────────────
-
-/// Axis-aligned bounding box (map units).
-#[derive(Clone, Copy, Debug)]
-pub struct Aabb {
-    pub min: Vec2,
-    pub max: Vec2,
-}
-
 impl Node {
     /// 0 = *front* of splitter, 1 = *back*.
     #[inline(always)]
     pub fn point_side(&self, p: Vec2) -> i32 {
         let d = (p.x - self.x as f32) * self.dy as f32 - (p.y - self.y as f32) * self.dx as f32;
         if d >= 0.0 { 0 } else { 1 }
-    }
-
-    /// Bounding box of child `side` (0 front, 1 back).
-    pub fn bbox(&self, side: usize) -> Aabb {
-        // [ top, bottom, left, right ]
-        // y-max, y-min, x-min, x-max
-        let bb = self.bbox[side];
-        Aabb {
-            min: vec2(bb[2] as f32, bb[1] as f32), // x-min, y-min
-            max: vec2(bb[3] as f32, bb[0] as f32), // x-max, y-max
-        }
     }
 }
 
@@ -147,7 +128,7 @@ mod tests {
         let root = &lvl.nodes[lvl.bsp_root() as usize];
 
         for side in 0..=1 {
-            let bb = root.bbox(side);
+            let bb = &root.bbox[side];
             let mid = (bb.min + bb.max) * 0.5;
             assert_eq!(root.point_side(mid), side as i32);
         }

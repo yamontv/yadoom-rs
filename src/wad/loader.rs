@@ -14,7 +14,7 @@ use crate::{
         texture::{Colormap, NO_TEXTURE, Palette, Texture, TextureBank, TextureError, TextureId},
     },
 };
-use glam::vec2;
+use glam::{Vec2, vec2};
 use thiserror::Error;
 
 /*──────────────────────────── Error type ───────────────────────────*/
@@ -131,7 +131,7 @@ pub fn load_level(
                 ceil_h: s.ceil_h,
                 floor_tex: tex_id(&s.floor_tex)?,
                 ceil_tex: tex_id(&s.ceil_tex)?,
-                light: s.light,
+                light: f32::from(s.light >> 3) / 31.0,
                 special: s.special,
                 tag: s.tag,
             })
@@ -207,13 +207,27 @@ mod raw_to_geo {
             first_seg: r.first_seg as u16,
         }
     }
+
+    const BOXTOP: usize = 0;
+    const BOXBOTTOM: usize = 1;
+    const BOXLEFT: usize = 2;
+    const BOXRIGHT: usize = 3;
+
+    #[inline]
+    fn raw_bbox_to_aabb(raw: &[i16; 4]) -> geo::Aabb {
+        geo::Aabb {
+            min: Vec2::new(raw[BOXLEFT] as f32, raw[BOXBOTTOM] as f32),
+            max: Vec2::new(raw[BOXRIGHT] as f32, raw[BOXTOP] as f32),
+        }
+    }
+
     pub fn node_from(r: raw::RawNode) -> geo::Node {
         geo::Node {
             x: r.x,
             y: r.y,
             dx: r.dx,
             dy: r.dy,
-            bbox: r.bbox,
+            bbox: [raw_bbox_to_aabb(&r.bbox[0]), raw_bbox_to_aabb(&r.bbox[1])],
             child: r.child,
         }
     }
