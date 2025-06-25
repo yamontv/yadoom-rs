@@ -118,7 +118,7 @@ pub fn load_level(
                 upper: tex_id(&s.top_tex)?,
                 lower: tex_id(&s.bottom_tex)?,
                 middle: tex_id(&s.mid_tex)?,
-                sector: s.sector as u16,
+                sector: s.sector as geo::SectorId,
             })
         })
         .collect::<Result<_, LoadError>>()?;
@@ -178,13 +178,13 @@ mod raw_to_geo {
 
     pub fn linedef_from(r: raw_level::RawLinedef) -> geo::Linedef {
         geo::Linedef {
-            v1: r.v1 as u16,
-            v2: r.v2 as u16,
+            v1: r.v1 as geo::VertexId,
+            v2: r.v2 as geo::VertexId,
             flags: geo::LinedefFlags::from_bits_truncate(r.flags as u16),
             special: r.special as u16,
             tag: r.tag as u16,
-            right_sidedef: (r.sidenum[0] >= 0).then_some(r.sidenum[0] as u16),
-            left_sidedef: (r.sidenum[1] >= 0).then_some(r.sidenum[1] as u16),
+            right_sidedef: (r.sidenum[0] >= 0).then_some(r.sidenum[0] as geo::SidedefId),
+            left_sidedef: (r.sidenum[1] >= 0).then_some(r.sidenum[1] as geo::SidedefId),
         }
     }
 
@@ -195,17 +195,17 @@ mod raw_to_geo {
     }
     pub fn seg_from(r: raw_level::RawSeg) -> geo::Seg {
         geo::Seg {
-            v1: r.v1 as u16,
-            v2: r.v2 as u16,
-            linedef: r.linedef as u16,
+            v1: r.v1 as geo::VertexId,
+            v2: r.v2 as geo::VertexId,
+            linedef: r.linedef as geo::LinedefId,
             dir: r.side as u16,
-            offset: r.offset,
+            offset: r.offset as f32,
         }
     }
     pub fn subsector_from(r: raw_level::RawSubsector) -> geo::Subsector {
         geo::Subsector {
             seg_count: r.seg_count as u16,
-            first_seg: r.first_seg as u16,
+            first_seg: r.first_seg as geo::SegmentId,
         }
     }
 
@@ -224,10 +224,10 @@ mod raw_to_geo {
 
     pub fn node_from(r: raw_level::RawNode) -> geo::Node {
         geo::Node {
-            x: r.x,
-            y: r.y,
-            dx: r.dx,
-            dy: r.dy,
+            x: r.x as f32,
+            y: r.y as f32,
+            dx: r.dx as f32,
+            dy: r.dy as f32,
             bbox: [raw_bbox_to_aabb(&r.bbox[0]), raw_bbox_to_aabb(&r.bbox[1])],
             child: r.child,
         }

@@ -1,15 +1,3 @@
-//! BSP helpers.
-//!
-//! Public API you can rely on:
-//! ```text
-//! Level::bsp_root()
-//! Level::locate_subsector()
-//! Level::finalise_bsp()
-//! Level::segs_of_subsector()
-//! Level::linedefs_of_sector()
-//! Node::point_side()
-//! ```
-
 use crate::world::camera::Camera;
 use crate::world::geometry::{Aabb, Level, Node, SegmentId};
 use glam::Vec2;
@@ -182,7 +170,7 @@ impl Node {
     /// 0 = *front* of splitter, 1 = *back*.
     #[inline(always)]
     pub fn point_side(&self, p: Vec2) -> i32 {
-        let d = (p.x - self.x as f32) * self.dy as f32 - (p.y - self.y as f32) * self.dx as f32;
+        let d = (p.x - self.x) * self.dy - (p.y - self.y) * self.dx;
         if d >= 0.0 { 0 } else { 1 }
     }
 }
@@ -245,7 +233,7 @@ impl Aabb {
 #[cfg(test)]
 mod tests {
     use crate::{
-        wad::{raw::Wad, loader},
+        wad::{loader, raw::Wad},
         world::texture::TextureBank,
     };
     use std::path::PathBuf;

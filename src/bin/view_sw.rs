@@ -2,7 +2,7 @@ use minifb::{Key, Window, WindowOptions};
 use std::time::{Duration, Instant};
 use yadoom_rs::{
     renderer::{Renderer, software::Software},
-    wad::{raw::Wad, loader},
+    wad::{loader, raw::Wad},
     world::{camera::Camera, geometry::SegmentId, texture::TextureBank},
 };
 

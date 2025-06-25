@@ -3,7 +3,11 @@ use glam::Vec2;
 
 use crate::world::texture::TextureId;
 
+pub type LinedefId = u16;
 pub type SegmentId = u16;
+pub type VertexId = u16;
+pub type SidedefId = u16;
+pub type SectorId = u16;
 
 /// Runtime snapshot of one map (immutable after load).
 #[derive(Debug)]
@@ -52,13 +56,13 @@ bitflags! {
 
 #[derive(Clone, Debug)]
 pub struct Linedef {
-    pub v1: u16,
-    pub v2: u16,
+    pub v1: VertexId,
+    pub v2: VertexId,
     pub flags: LinedefFlags,
     pub special: u16,
     pub tag: u16,
-    pub right_sidedef: Option<u16>,
-    pub left_sidedef: Option<u16>,
+    pub right_sidedef: Option<SidedefId>,
+    pub left_sidedef: Option<SidedefId>,
 }
 
 /*--------------------------- sidedefs -------------------------------*/
@@ -70,7 +74,7 @@ pub struct Sidedef {
     pub upper: TextureId, // texture names remain 8-byte arrays
     pub lower: TextureId,
     pub middle: TextureId,
-    pub sector: u16,
+    pub sector: SectorId,
 }
 
 /*----------------------- simple primitives --------------------------*/
@@ -82,11 +86,11 @@ pub struct Vertex {
 
 #[derive(Clone, Debug)]
 pub struct Seg {
-    pub v1: u16,
-    pub v2: u16,
-    pub linedef: u16,
+    pub v1: VertexId,
+    pub v2: VertexId,
+    pub linedef: LinedefId,
     pub dir: u16,
-    pub offset: i16,
+    pub offset: f32,
 }
 
 #[derive(Clone, Debug)]
@@ -103,10 +107,10 @@ pub struct Aabb {
 
 #[derive(Clone, Debug)]
 pub struct Node {
-    pub x: i16,
-    pub y: i16,
-    pub dx: i16,
-    pub dy: i16,
+    pub x: f32,
+    pub y: f32,
+    pub dx: f32,
+    pub dy: f32,
     pub bbox: [Aabb; 2],
     pub child: [u16; 2],
 }
