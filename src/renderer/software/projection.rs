@@ -1,3 +1,5 @@
+use glam::Vec2;
+
 use crate::renderer::software::Software;
 use crate::world::camera::Camera;
 use crate::world::geometry::{Level, SegmentId};
@@ -17,6 +19,11 @@ impl Software {
         let seg = &level.segs[seg_idx as usize];
         let v1 = &level.vertices[seg.v1 as usize].pos;
         let v2 = &level.vertices[seg.v2 as usize].pos;
+
+        // Back‑face cull
+        if Self::back_facing_seg(&v1, &v2, camera) {
+            return None;
+        }
 
         // ──────────────────────────────────────────────────────────────────────
         // 1. camera-space endpoints
@@ -127,5 +134,23 @@ impl Software {
             *t2 = 1.0 - t;
         }
         true
+    }
+
+    fn back_facing_seg(p1: &Vec2, p2: &Vec2, camera: &Camera) -> bool {
+        let cam_pos = camera.pos.truncate();
+
+        // vectors from camera to each endpoint
+        let v1 = p1 - cam_pos;
+        let v2 = p2 - cam_pos;
+
+        // compute angles in [–π, π]
+        let a1 = v1.y.atan2(v1.x);
+        let a2 = v2.y.atan2(v2.x);
+
+        // delta, normalized into [0, 2π)
+        let span = (a1 - a2).rem_euclid(2.0 * std::f32::consts::PI);
+
+        // if the angular span ≥ π, the wall is fully behind us
+        span >= std::f32::consts::PI
     }
 }

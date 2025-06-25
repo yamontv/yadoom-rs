@@ -2,7 +2,7 @@ use crate::{
     renderer::software::planes::PlaneMap,
     renderer::{Renderer, Rgba},
     world::camera::Camera,
-    world::geometry::{Level, SegmentId},
+    world::geometry::{Level, SubsectorId},
     world::texture::TextureBank,
 };
 
@@ -61,9 +61,9 @@ impl Renderer for Software {
         self.visplane_map.clear(self.width);
     }
 
-    fn draw_segments(
+    fn draw_subsectors(
         &mut self,
-        segments: &[SegmentId],
+        subsectors: &[SubsectorId],
         level: &Level,
         camera: &Camera,
         texture_bank: &TextureBank,
@@ -71,11 +71,18 @@ impl Renderer for Software {
         self.focal = camera.screen_scale(self.width);
         self.view_z = camera.pos.z;
 
-        for segment in segments.iter().copied() {
-            if let Some(edge) = self.project_seg(segment, level, camera) {
-                self.draw_edge(edge, segment, level, texture_bank);
+        for ss_idx in subsectors.iter().copied() {
+            let ss = &level.subsectors[ss_idx as usize];
+            let start = ss.first_seg;
+            let end = start + ss.seg_count;
+
+            for seg_idx in start..end {
+                if let Some(edge) = self.project_seg(seg_idx, level, camera) {
+                    self.draw_edge(edge, seg_idx, level, texture_bank);
+                }
             }
         }
+
         self.flush_planes(camera, texture_bank);
     }
 

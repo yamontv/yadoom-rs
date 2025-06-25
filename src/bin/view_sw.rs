@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use yadoom_rs::{
     renderer::{Renderer, software::Software},
     wad::{loader, raw::Wad},
-    world::{camera::Camera, geometry::SegmentId, texture::TextureBank},
+    world::{camera::Camera, geometry::SubsectorId, texture::TextureBank},
 };
 
 const W: usize = 1280;
@@ -40,7 +40,7 @@ fn main() -> anyhow::Result<()> {
     let mut acc_frames = 0usize; // frames in the current window
     let mut last_print = Instant::now(); // when we printed last
 
-    let mut active_segments: Vec<SegmentId> = Vec::new();
+    let mut active_subsectors: Vec<SubsectorId> = Vec::new();
 
     while win.is_open() && !win.is_key_down(Key::Escape) {
         let t0 = Instant::now(); // ┌─ frame timer start
@@ -74,8 +74,8 @@ fn main() -> anyhow::Result<()> {
         /* draw */
         renderer.begin_frame(W, H);
         camera.pos.z = level.floor_height_under_player(camera.pos.truncate()) + 41.0;
-        level.fill_active_segments(&camera, &mut active_segments);
-        renderer.draw_segments(&active_segments, &level, &camera, &texture_bank);
+        level.fill_active_subsectors(&camera, &mut active_subsectors);
+        renderer.draw_subsectors(&active_subsectors, &level, &camera, &texture_bank);
         renderer.end_frame(|fb, w, h| {
             // ─────────── accumulate & report every ~3 s ────────────────────
             acc_time += t0.elapsed();

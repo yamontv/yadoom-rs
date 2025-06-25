@@ -1,7 +1,7 @@
 //! Rendering abstraction layer.
 use crate::world::{
     camera::Camera,
-    geometry::{Level, SegmentId},
+    geometry::{Level, SubsectorId},
     texture::TextureBank,
 };
 
@@ -11,9 +11,9 @@ pub type Rgba = u32;
 pub trait Renderer {
     fn begin_frame(&mut self, w: usize, h: usize);
 
-    fn draw_segments(
+    fn draw_subsectors(
         &mut self,
-        segments: &[SegmentId],
+        subsectors: &[SubsectorId],
         level: &Level,
         camera: &Camera,
         texture_bank: &TextureBank,

@@ -1,5 +1,5 @@
 use crate::world::camera::Camera;
-use crate::world::geometry::{Aabb, Level, Node, SegmentId};
+use crate::world::geometry::{Aabb, Level, Node, SubsectorId};
 use glam::Vec2;
 
 pub const CHILD_MASK: u16 = 0x7FFF;
@@ -52,58 +52,15 @@ impl Level {
         }
     }
 
-    /// Iterate **seg indices** that form subsector `ss_idx`.
-    pub fn segs_of_subsector<'a>(&'a self, ss_idx: u16) -> impl Iterator<Item = u16> + 'a {
-        let ss = &self.subsectors[ss_idx as usize];
-        let start = ss.first_seg as usize;
-        let end = start + ss.seg_count as usize;
-        (start..end).map(|i| i as u16)
+    pub fn fill_active_subsectors(&self, camera: &Camera, subsectors: &mut Vec<SubsectorId>) {
+        subsectors.clear();
+
+        self.walk_bsp(self.bsp_root(), camera, subsectors);
     }
 
-    /// Iterate **linedef indices** bordering sector `sector_idx`.
-    pub fn linedefs_of_sector<'a>(&'a self, sector_idx: u16) -> impl Iterator<Item = u16> + 'a {
-        self.linedefs
-            .iter()
-            .enumerate()
-            .filter(move |(_, ld)| {
-                ld.right_sidedef
-                    .and_then(|s| self.sidedefs.get(s as usize))
-                    .is_some_and(|sd| sd.sector == sector_idx)
-                    || ld
-                        .left_sidedef
-                        .and_then(|s| self.sidedefs.get(s as usize))
-                        .is_some_and(|sd| sd.sector == sector_idx)
-            })
-            .map(|(i, _)| i as u16)
-    }
-
-    pub fn fill_active_segments(&self, camera: &Camera, segments: &mut Vec<SegmentId>) {
-        segments.clear();
-
-        self.walk_bsp(self.bsp_root(), camera, segments);
-    }
-
-    fn collect_subsector_segments(
-        &self,
-        ss_idx: u16,
-        camera: &Camera,
-        segments: &mut Vec<SegmentId>,
-    ) {
-        let ss = &self.subsectors[ss_idx as usize];
-        let start = ss.first_seg;
-        let end = start + ss.seg_count;
-
-        for seg_idx in start..end {
-            // Back‑face cull
-            if !self.back_facing_seg(seg_idx, camera) {
-                segments.push(seg_idx);
-            }
-        }
-    }
-
-    fn walk_bsp(&self, child: u16, camera: &Camera, segments: &mut Vec<SegmentId>) {
+    fn walk_bsp(&self, child: u16, camera: &Camera, subsectors: &mut Vec<SubsectorId>) {
         if child & SUBSECTOR_BIT != 0 {
-            self.collect_subsector_segments(child & CHILD_MASK, camera, segments);
+            subsectors.push(child & CHILD_MASK);
             return;
         }
 
@@ -115,35 +72,12 @@ impl Level {
         let back_visible = node.bbox[front ^ 1].bbox_in_fov(camera);
 
         // Near side first …
-        self.walk_bsp(near, camera, segments);
+        self.walk_bsp(near, camera, subsectors);
 
         // … far side only if its bounding box might be visible.
         if back_visible {
-            self.walk_bsp(back, camera, segments);
+            self.walk_bsp(back, camera, subsectors);
         }
-    }
-
-    fn back_facing_seg(&self, seg_idx: u16, camera: &Camera) -> bool {
-        let seg = &self.segs[seg_idx as usize];
-        let cam_pos = camera.pos.truncate();
-
-        // endpoint positions in 2D
-        let p1 = self.vertices[seg.v1 as usize].pos;
-        let p2 = self.vertices[seg.v2 as usize].pos;
-
-        // vectors from camera to each endpoint
-        let v1 = p1 - cam_pos;
-        let v2 = p2 - cam_pos;
-
-        // compute angles in [–π, π]
-        let a1 = v1.y.atan2(v1.x);
-        let a2 = v2.y.atan2(v2.x);
-
-        // delta, normalized into [0, 2π)
-        let span = (a1 - a2).rem_euclid(2.0 * std::f32::consts::PI);
-
-        // if the angular span ≥ π, the wall is fully behind us
-        span >= std::f32::consts::PI
     }
 
     /// Return the floor height (Z) of the sector the player is currently in.
@@ -256,19 +190,5 @@ mod tests {
             let mid = (bb.min + bb.max) * 0.5;
             assert_eq!(root.point_side(mid), side as i32);
         }
-    }
-
-    #[test]
-    fn methods_return_expected_ranges() {
-        let wad = Wad::from_file(doom_wad()).unwrap();
-        let mut bank = TextureBank::default_with_checker();
-        let mut lvl = loader::load_level(&wad, wad.level_indices()[0], &mut bank).unwrap();
-        lvl.finalise_bsp();
-
-        let ss0 = lvl.locate_subsector(lvl.things[0].pos);
-        assert!(lvl.segs_of_subsector(ss0).count() > 0);
-
-        let sect = lvl.sector_of_subsector[ss0 as usize];
-        assert!(lvl.linedefs_of_sector(sect).count() > 0);
     }
 }

@@ -3,6 +3,7 @@ use glam::Vec2;
 
 use crate::world::texture::TextureId;
 
+pub type SubsectorId = u16;
 pub type LinedefId = u16;
 pub type SegmentId = u16;
 pub type VertexId = u16;

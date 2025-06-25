@@ -36,6 +36,9 @@ pub enum LoadError {
 
     #[error("COLORMAP lump missing - cannot build palette")]
     NoColormap,
+
+    #[error("S_START/END lump missing - cannot build sprites")]
+    NoSprites,
 }
 
 /*====================================================================*/
@@ -61,6 +64,8 @@ pub fn load_level(
     let colormap = load_colormap(wad).ok_or(LoadError::NoPalette)?;
 
     bank.set_colormap(colormap);
+
+    load_all_sprites(wad, bank)?;
 
     /*----- 3. Patch cache (index → Texture) ------------------------------*/
     let patch_vec = decode_all_patches(wad)?;
@@ -398,6 +403,18 @@ fn decode_flat(wad: &Wad, name: &str) -> Option<Texture> {
         h: 64,
         pixels: rgba,
     })
+}
+
+fn load_all_sprites(wad: &Wad, bank: &mut TextureBank) -> Result<(), LoadError> {
+    let start_index = wad.find_lump("S_START").ok_or(LoadError::NoSprites)? + 1;
+    let end_index = wad.find_lump("S_END").ok_or(LoadError::NoSprites)?;
+
+    for idx in start_index..end_index {
+        let name = Wad::lump_name_str(&wad.lumps()[idx].name);
+        bank.insert(name, decode_patch(wad.lump_bytes(idx)?))?;
+    }
+
+    Ok(())
 }
 
 /*====================================================================*/
