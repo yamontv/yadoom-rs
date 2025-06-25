@@ -16,7 +16,7 @@
 #    – A vanilla Doom WAD (e.g. doom1.wad) –
 
 # 2. Clone & build (release for best FPS)
-$ git clone https://github.com/your‑nick/yadoom‑rs && cd yadoom‑rs
+$ git clone https://github.com/yamontv/yadoom-rs.git && cd yadoom‑rs
 $ cargo run --release -- <path‑to‑wad> {level_num}
 ```
 ---
