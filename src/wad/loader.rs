@@ -155,7 +155,6 @@ pub fn load_level(
         subsectors,
         nodes,
         sectors,
-        sector_of_subsector: Vec::new(),
     })
 }
 
@@ -178,6 +177,7 @@ mod raw_to_geo {
             min_skill,
             is_deaf: r.options & 0x0020 != 0,
             multiplayer: r.options & 0x0100 != 0,
+            sub_sector: u16::MAX,
         }
     }
 
@@ -209,8 +209,10 @@ mod raw_to_geo {
     }
     pub fn subsector_from(r: raw_level::RawSubsector) -> geo::Subsector {
         geo::Subsector {
-            seg_count: r.seg_count as u16,
-            first_seg: r.first_seg as geo::SegmentId,
+            num_lines: r.seg_count as u16,
+            first_line: r.first_seg as geo::SegmentId,
+            sector: u16::MAX,
+            things: Vec::new(),
         }
     }
 

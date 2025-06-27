@@ -1,10 +1,11 @@
 use crate::{
-    renderer::software::planes::PlaneMap,
+    renderer::software::{planes::PlaneMap, sprites::VisSprite},
     renderer::{Renderer, Rgba},
     world::camera::Camera,
     world::geometry::{Level, SubsectorId},
     world::texture::TextureBank,
 };
+use minifb::Window;
 
 #[derive(Default)]
 pub struct ClipBands {
@@ -24,6 +25,7 @@ pub struct Software {
     pub clip_bands: ClipBands,
     pub visplane_map: PlaneMap,
     pub solid_segs: Vec<ClipRange>,
+    pub sprites: Vec<VisSprite>,
 
     pub width: usize,
     pub height: usize,
@@ -59,6 +61,8 @@ impl Renderer for Software {
         self.init_solid_segs();
 
         self.visplane_map.clear(self.width);
+
+        self.sprites.clear();
     }
 
     fn draw_subsectors(
@@ -67,14 +71,25 @@ impl Renderer for Software {
         level: &Level,
         camera: &Camera,
         texture_bank: &TextureBank,
+        win: &mut Window,
     ) {
+        // win.update_with_buffer(&self.scratch, self.width, self.height);
+        if subsectors.len() == 0 {
+            return;
+        }
+
         self.focal = camera.screen_scale(self.width);
-        self.view_z = camera.pos.z;
+
+        let sec0_idx = level.subsectors[subsectors[0] as usize].sector;
+        let floor_z = level.sectors[sec0_idx as usize].floor_h as f32;
+        self.view_z = camera.pos.z + floor_z;
 
         for ss_idx in subsectors.iter().copied() {
             let ss = &level.subsectors[ss_idx as usize];
-            let start = ss.first_seg;
-            let end = start + ss.seg_count;
+            let start = ss.first_line;
+            let end = start + ss.num_lines;
+
+            self.collect_sprites_for_subsector(ss_idx, level, camera, texture_bank);
 
             for seg_idx in start..end {
                 if let Some(edge) = self.project_seg(seg_idx, level, camera) {
@@ -84,6 +99,8 @@ impl Renderer for Software {
         }
 
         self.flush_planes(camera, texture_bank);
+
+        self.draw_sprites(texture_bank);
     }
 
     fn end_frame<F>(&mut self, submit: F)

@@ -30,25 +30,33 @@ impl Level {
         }
     }
 
-    /// Build `sector_of_subsector` once after load / edit.
     pub fn finalise_bsp(&mut self) {
-        if self.sector_of_subsector.is_empty() {
-            self.sector_of_subsector = self
-                .subsectors
-                .iter()
-                .map(|ss| {
-                    let seg = &self.segs[ss.first_seg as usize];
-                    let ld = &self.linedefs[seg.linedef as usize];
-                    let side = if seg.dir == 0 {
-                        ld.right_sidedef
-                    } else {
-                        ld.left_sidedef
-                    };
-                    side.and_then(|s| self.sidedefs.get(s as usize))
-                        .map(|sd| sd.sector)
-                        .unwrap_or(0)
-                })
-                .collect();
+        for ss in self.subsectors.iter_mut() {
+            let seg = &self.segs[ss.first_line as usize];
+            let ld = &self.linedefs[seg.linedef as usize];
+            let side = if seg.dir == 0 {
+                ld.right_sidedef
+            } else {
+                ld.left_sidedef
+            };
+            ss.sector = side
+                .and_then(|s| self.sidedefs.get(s as usize))
+                .map(|sd| sd.sector)
+                .unwrap_or(u16::MAX);
+        }
+
+        let ss_for_thing: Vec<u16> = self
+            .things
+            .iter()
+            .map(|t| self.locate_subsector(t.pos))
+            .collect();
+
+        for (thing, ss) in self.things.iter_mut().zip(ss_for_thing) {
+            thing.sub_sector = ss;
+        }
+
+        for (thing_idx, thing) in self.things.iter().enumerate() {
+            self.subsectors[thing.sub_sector as usize].things.push(thing_idx as u16);
         }
     }
 
@@ -78,22 +86,6 @@ impl Level {
         if back_visible {
             self.walk_bsp(back, camera, subsectors);
         }
-    }
-
-    /// Return the floor height (Z) of the sector the player is currently in.
-    pub fn floor_height_under_player(&self, pos: Vec2) -> f32 {
-        let ss_idx = self.locate_subsector(pos);
-        let ss = &self.subsectors[ss_idx as usize];
-        let seg = &self.segs[ss.first_seg as usize];
-        let ld = &self.linedefs[seg.linedef as usize];
-        let sd_idx = if seg.dir == 0 {
-            ld.right_sidedef
-        } else {
-            ld.left_sidedef
-        }
-        .expect("subsector SEG must have a sidedef");
-        let sector = &self.sectors[self.sidedefs[sd_idx as usize].sector as usize];
-        sector.floor_h
     }
 }
 

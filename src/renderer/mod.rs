@@ -4,6 +4,7 @@ use crate::world::{
     geometry::{Level, SubsectorId},
     texture::TextureBank,
 };
+use minifb::Window;
 
 /// Pixel format of the software frame-buffer (0x00RRGGBB).
 pub type Rgba = u32;
@@ -17,6 +18,7 @@ pub trait Renderer {
         level: &Level,
         camera: &Camera,
         texture_bank: &TextureBank,
+        win: &mut Window,
     );
 
     fn end_frame<F>(&mut self, submit: F)

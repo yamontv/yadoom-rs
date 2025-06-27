@@ -9,6 +9,7 @@ pub type SegmentId = u16;
 pub type VertexId = u16;
 pub type SidedefId = u16;
 pub type SectorId = u16;
+pub type ThingId = u16;
 
 /// Runtime snapshot of one map (immutable after load).
 #[derive(Debug)]
@@ -22,8 +23,6 @@ pub struct Level {
     pub subsectors: Vec<Subsector>,
     pub nodes: Vec<Node>,
     pub sectors: Vec<Sector>,
-    /// lookup: subsector → sector (filled by `Level::finalise_bsp`)
-    pub sector_of_subsector: Vec<u16>,
 }
 
 /*------------------------- game objects -----------------------------*/
@@ -36,6 +35,8 @@ pub struct Thing {
     pub min_skill: u8,     // 1 easy, 2 medium, 3 hard
     pub is_deaf: bool,     // MF_AMBUSH
     pub multiplayer: bool, // NOTSINGLE player flag
+
+    pub sub_sector: SubsectorId,
 }
 
 /*--------------------------- linedefs -------------------------------*/
@@ -96,8 +97,11 @@ pub struct Seg {
 
 #[derive(Clone, Debug)]
 pub struct Subsector {
-    pub seg_count: u16,
-    pub first_seg: SegmentId,
+    pub num_lines: u16,
+    pub first_line: SegmentId,
+
+    pub sector: SectorId,
+    pub things: Vec<ThingId>,
 }
 
 #[derive(Clone, Debug)]
