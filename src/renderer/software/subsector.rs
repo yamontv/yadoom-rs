@@ -3,7 +3,7 @@ use crate::{
         Software,
         planes::{NO_PLANE, VisplaneId},
         projection::Edge,
-        sprites::{DrawSeg, Silhouette},
+        sprites::Silhouette,
     },
     world::{
         geometry::{Level, Linedef, LinedefFlags, Sector, Seg, SegmentId, Sidedef},
@@ -166,33 +166,15 @@ impl Software {
             NO_PLANE
         };
 
-        let scale1 = self.focal * edge.invz_l;
-        let scale2 = self.focal * edge.invz_r;
-        let scale_step = (scale2 - scale1) / ((edge.x_r - edge.x_l) as f32);
-
-        let masked_mid_tex = if sec_back_opt.is_some() {
-            let tex_id = sd_front.middle;
-            if tex_id != NO_TEXTURE {
-                Some(tex_id)
+        let mut ds = self.create_draw_seg(
+            seg_idx,
+            &edge,
+            if sec_back_opt.is_some() {
+                sd_front.middle
             } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        let mut ds = DrawSeg {
-            cur_line: seg_idx,
-            x1: edge.x_l,
-            x2: edge.x_r,
-            scale1,
-            scale2,
-            scale_step,
-            silhouette: Silhouette::NONE,
-            bsil_height: f32::MIN,
-            tsil_height: f32::MAX,
-            masked_mid: masked_mid_tex,
-        };
+                NO_TEXTURE
+            },
+        );
 
         let pass = self.decide_pass(sec_front, sec_back_opt, sd_front, ld);
 
@@ -271,6 +253,8 @@ impl Software {
                 }
             }
         }
+
+        self.update_draw_seg_clips(&mut ds);
 
         self.drawsegs.push(ds);
     }

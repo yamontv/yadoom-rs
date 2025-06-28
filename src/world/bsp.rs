@@ -1,5 +1,5 @@
 use crate::world::camera::Camera;
-use crate::world::geometry::{Aabb, Level, Node, SubsectorId};
+use crate::world::geometry::{Aabb, Level, Node, SubsectorId, Vertex, VertexId};
 use glam::Vec2;
 
 pub const CHILD_MASK: u16 = 0x7FFF;
@@ -56,7 +56,9 @@ impl Level {
         }
 
         for (thing_idx, thing) in self.things.iter().enumerate() {
-            self.subsectors[thing.sub_sector as usize].things.push(thing_idx as u16);
+            self.subsectors[thing.sub_sector as usize]
+                .things
+                .push(thing_idx as u16);
         }
     }
 
@@ -96,8 +98,25 @@ impl Node {
     /// 0 = *front* of splitter, 1 = *back*.
     #[inline(always)]
     pub fn point_side(&self, p: Vec2) -> i32 {
+        // Treat x, y, dx, dy as i32 fixed-point in map units << FRACBITS
+        // Here assumed already stored as f32/f64 but holding integral values.
+        if self.dx == 0.0 {
+            return if p.x <= self.x {
+                (self.dy > 0.0) as i32
+            } else {
+                (self.dy < 0.0) as i32
+            };
+        }
+        if self.dy == 0.0 {
+            return if p.y <= self.y {
+                (self.dx < 0.0) as i32
+            } else {
+                (self.dx > 0.0) as i32
+            };
+        }
+
         let d = (p.x - self.x) * self.dy - (p.y - self.y) * self.dx;
-        if d >= 0.0 { 0 } else { 1 }
+        (d < 0.0) as i32 // 0 = front, 1 = back
     }
 }
 

@@ -24,10 +24,10 @@ fn main() -> anyhow::Result<()> {
 
     let player = level.things.iter().find(|t| t.type_id == 1).unwrap();
     let mut camera = Camera::new(player.pos.extend(41.0), player.angle, 90_f32.to_radians());
-    // let camera = Camera::new(
-    //     glam::Vec3::new(2933.7625, -2822.0237, 41.0),
-    //     5.0714335,
-    //     90_f32.to_radians(),
+    // let mut camera = Camera::new(
+    //     glam::Vec3::new(2977.2725, -2860.554, 41.0),
+    //     5.2509475,
+    //     1.5707964,
     // );
 
     let mut renderer = Software::default();
@@ -69,7 +69,7 @@ fn main() -> anyhow::Result<()> {
         camera.turn(yaw);
         camera.step(dy, dx);
 
-        // dbg!(engine.camera);
+        // dbg!(camera);
 
         /* draw */
         renderer.begin_frame(W, H);

@@ -21,6 +21,8 @@ pub trait Renderer {
         win: &mut Window,
     );
 
+    fn draw_line(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, col: u32);
+
     fn end_frame<F>(&mut self, submit: F)
     where
         F: FnOnce(&[Rgba], usize, usize);

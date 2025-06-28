@@ -1,5 +1,7 @@
+use std::ops::Range;
+
 use crate::{
-    renderer::software::Software,
+    renderer::software::{Software, projection::Edge},
     world::{
         camera::Camera,
         geometry::{Level, SegmentId, SubsectorId},
@@ -7,6 +9,29 @@ use crate::{
     },
 };
 use bitflags::bitflags;
+
+#[derive(Default)]
+pub struct FrameScratch {
+    openings: Vec<i16>,
+    cursor: usize,
+}
+impl FrameScratch {
+    /// Allocate `len` consecutive i16 slots inside `openings`
+    /// and return the index range that was handed out.
+    pub fn alloc(&mut self, len: usize) -> Range<usize> {
+        let start = self.cursor;
+        self.cursor += len;
+
+        if self.cursor > self.openings.len() {
+            self.openings.resize(self.cursor.next_power_of_two(), 0);
+        }
+        start..start + len
+    }
+
+    pub fn reset(&mut self) {
+        self.cursor = 0;
+    }
+}
 
 #[derive(Clone, Default)]
 pub struct DrawSeg {
@@ -22,7 +47,11 @@ pub struct DrawSeg {
     pub bsil_height: f32, // do not clip sprites above this
     pub tsil_height: f32, // do not clip sprites below this
 
-    pub masked_mid: Option<TextureId>,
+    pub masked_mid: TextureId,
+
+    /// Pointers into the global `openings` pool (or empty slices if not needed)
+    pub top_clip: Range<usize>,
+    pub bot_clip: Range<usize>,
 }
 
 bitflags! {
@@ -42,6 +71,8 @@ pub struct VisSprite {
     pub y0: i32,
     pub y1: i32,
     pub invz: f32, // 1 / camera-space Y (depth)
+    pub gx: f32,   // world X  (for side test)
+    pub gy: f32,   // world Y
     pub tex: TextureId,
     pub u_step: f32, // how far to advance U per screen pixel X
 }
@@ -64,9 +95,58 @@ fn sprite_for(type_id: u16, tex_bank: &TextureBank) -> TextureId {
 }
 
 impl Software {
-    // ---------------------------------------------------------------------
-    // Phase 1: build a list of sprites that enter the view
-    // ---------------------------------------------------------------------
+    pub fn create_draw_seg(
+        &self,
+        seg_idx: SegmentId,
+        edge: &Edge,
+        masked_mid: TextureId,
+    ) -> DrawSeg {
+        let scale1 = self.focal * edge.invz_l;
+        let scale2 = self.focal * edge.invz_r;
+        let scale_step = (scale2 - scale1) / ((edge.x_r - edge.x_l) as f32);
+
+        DrawSeg {
+            cur_line: seg_idx,
+            x1: edge.x_l,
+            x2: edge.x_r,
+            scale1,
+            scale2,
+            scale_step,
+            silhouette: Silhouette::NONE,
+            bsil_height: f32::MIN,
+            tsil_height: f32::MAX,
+            masked_mid: masked_mid,
+            top_clip: 0..0,
+            bot_clip: 0..0,
+        }
+    }
+
+    pub fn update_draw_seg_clips(&mut self, ds: &mut DrawSeg) {
+        let count = (ds.x2 - ds.x1 + 1) as usize;
+
+        if ds.silhouette.contains(Silhouette::TOP) {
+            let range = self.frame_scratch.alloc(count);
+            for i in 0..count {
+                self.frame_scratch.openings[range.start + i] =
+                    self.clip_bands.ceil[ds.x1 as usize + i];
+            }
+            ds.top_clip = range;
+        } else {
+            ds.top_clip = 0..0;
+        }
+
+        if ds.silhouette.contains(Silhouette::BOTTOM) {
+            let range = self.frame_scratch.alloc(count);
+            for i in 0..count {
+                self.frame_scratch.openings[range.start + i] =
+                    self.clip_bands.floor[ds.x1 as usize + i];
+            }
+            ds.bot_clip = range;
+        } else {
+            ds.bot_clip = 0..0;
+        }
+    }
+
     pub fn collect_sprites_for_subsector(
         &mut self,
         ss_idx: SubsectorId,
@@ -113,7 +193,7 @@ impl Software {
             }
 
             // vertical offset between sprite base (sector floor) and the eye
-            let rel_z = floor_z - camera.pos.z;
+            let rel_z = floor_z - self.view_z;
 
             let y_bottom = half_h - rel_z * scale;
 
@@ -126,6 +206,8 @@ impl Software {
                 y0,
                 y1,
                 invz,
+                gx: thing.pos.x,
+                gy: thing.pos.y,
                 tex: tex_id,
                 u_step: tex.w as f32 / (x1 - x0 + 1) as f32,
             });
@@ -136,64 +218,106 @@ impl Software {
         self.sprites.append(&mut out);
     }
 
-    // ---------------------------------------------------------------------
-    // Phase 2: draw them, column by column
-    // ---------------------------------------------------------------------
-    pub fn draw_sprites(&mut self, tex_bank: &TextureBank) {
+    pub fn draw_sprites(&mut self, level: &Level, tex_bank: &TextureBank) {
+        let openings = &self.frame_scratch.openings; // clip rows arena
+        let focal = self.focal; // already stored in Software
+
         for spr in &self.sprites {
+            // Sprite's “scale” in the same metric the walls use
+            let spr_scale = focal * spr.invz;
+
             let tex = tex_bank.texture(spr.tex).unwrap();
-            let mut u_f = 0.0;
+            let u_inc = spr.u_step;
+
             let mut x = spr.x0.max(0);
             let x_end = spr.x1.min(self.width as i32 - 1);
-            let u_step = spr.u_step;
+            let mut u_f = 0.0_f32;
 
-            // column loop --------------------------------------------------
+            // ------------------------------------------------ column loop ----
             while x <= x_end {
-                // occlusion test – skip columns fully hidden by solid walls
-                if self.is_column_occluded(x) {
-                    u_f += u_step;
-                    x += 1;
-                    continue;
+                // --------- clip bands built from nearer drawsegs ------------
+                let mut ceil = -1; // fully open above
+                let mut floor = self.height as i32; // fully open below
+
+                // drawsegs were pushed back-to-front ⇒ walk in reverse
+                for ds in self.drawsegs.iter().rev() {
+                    // seg does not touch this column
+                    if x < ds.x1 || x > ds.x2 {
+                        continue;
+                    }
+
+                    let max_scale = ds.scale1.max(ds.scale2);
+                    let low_scale = ds.scale1.min(ds.scale2);
+
+                    let seg_is_behind = if max_scale < spr_scale {
+                        true // both edges farther
+                    } else if low_scale < spr_scale {
+                        // one edge closer, one edge farther → need side test
+                        Self::point_on_seg_backside(level, spr.gx, spr.gy, ds.cur_line)
+                    } else {
+                        false // unquestionably in front
+                    };
+                    if seg_is_behind {
+                        continue;
+                    }
+
+                    // TOP silhouette
+                    if ds.silhouette.contains(Silhouette::TOP) {
+                        let idx = ds.top_clip.start + (x - ds.x1) as usize;
+                        ceil = ceil.max(openings[idx] as i32);
+                    }
+                    // BOTTOM silhouette
+                    if ds.silhouette.contains(Silhouette::BOTTOM) {
+                        let idx = ds.bot_clip.start + (x - ds.x1) as usize;
+                        floor = floor.min(openings[idx] as i32);
+                    }
+
+                    if ceil >= floor {
+                        break; // sprite column fully hidden
+                    }
                 }
 
+                if ceil >= floor {
+                    u_f += u_inc;
+                    x += 1;
+                    continue; // nothing visible in this column
+                }
+
+                // ---------------- draw the sprite column -------------------
                 let u = u_f as usize;
                 if u >= tex.w {
                     break;
                 }
 
-                // clip top/bottom against visplane bands
-                let ceil = self.clip_bands.ceil[x as usize] as i32;
-                let floor = self.clip_bands.floor[x as usize] as i32;
-                let y0 = spr.y0.max(ceil).max(0);
-                let y1 = spr.y1.min(floor).min(self.height as i32 - 1);
+                let y0_clip = ceil.max(spr.y0).max(0);
+                let y1_clip = floor.min(spr.y1).min(self.height as i32 - 1);
 
-                // draw one vertical slice ---------------------------------
                 let v_step = tex.h as f32 / (spr.y1 - spr.y0 + 1) as f32;
-                let mut v_f = (y0 - spr.y0) as f32 * v_step;
-                for y in y0..=y1 {
+                let mut v_f = (y0_clip - spr.y0) as f32 * v_step;
+
+                for y in y0_clip..=y1_clip {
                     let v = v_f as usize;
+                    if v >= tex.h {
+                        break;
+                    }
                     let idx = tex.pixels[v * tex.w + u];
                     if idx != 0 {
-                        // 0 = fully transparent
                         self.scratch[y as usize * self.width + x as usize] =
                             tex_bank.get_color(0, idx);
                     }
                     v_f += v_step;
                 }
 
-                u_f += u_step;
+                u_f += u_inc;
                 x += 1;
             }
         }
     }
 
-    #[inline]
-    fn is_column_occluded(&self, x: i32) -> bool {
-        for seg in &self.solid_segs {
-            if x >= seg.first && x <= seg.last {
-                return true;
-            }
-        }
-        false
+    fn point_on_seg_backside(level: &Level, px: f32, py: f32, seg_id: SegmentId) -> bool {
+        let seg = &level.segs[seg_id as usize];
+        let v1 = &level.vertices[seg.v1 as usize];
+        let v2 = &level.vertices[seg.v2 as usize];
+        ((px - v1.pos.x) * (v2.pos.y - v1.pos.y) - (py - v1.pos.y) * (v2.pos.x - v1.pos.x)) < 0.0
     }
 }

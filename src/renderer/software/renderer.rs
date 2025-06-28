@@ -1,7 +1,7 @@
 use crate::{
     renderer::software::{
         planes::PlaneMap,
-        sprites::{DrawSeg, VisSprite},
+        sprites::{DrawSeg, FrameScratch, VisSprite},
     },
     renderer::{Renderer, Rgba},
     world::camera::Camera,
@@ -30,7 +30,7 @@ pub struct Software {
     pub solid_segs: Vec<ClipRange>,
     pub sprites: Vec<VisSprite>,
     pub drawsegs: Vec<DrawSeg>,
-    pub sprite_bands: ClipBands,
+    pub frame_scratch: FrameScratch,
 
     pub width: usize,
     pub height: usize,
@@ -55,8 +55,6 @@ impl Renderer for Software {
             self.scratch.resize(w * h, 0);
             self.clip_bands.ceil.resize(w, i16::MIN);
             self.clip_bands.floor.resize(w, i16::MAX);
-            self.sprite_bands.ceil.resize(w, i16::MIN);
-            self.sprite_bands.floor.resize(w, i16::MAX);
         }
         // dark‑grey clear
         self.scratch.fill(0xFF_20_20_20);
@@ -64,8 +62,6 @@ impl Renderer for Software {
         // fully open clips at start of frame
         self.clip_bands.ceil.fill(i16::MIN);
         self.clip_bands.floor.fill(i16::MAX);
-        self.sprite_bands.ceil.fill(i16::MIN);
-        self.sprite_bands.floor.fill(i16::MAX);
 
         self.init_solid_segs();
 
@@ -73,6 +69,7 @@ impl Renderer for Software {
 
         self.sprites.clear();
         self.drawsegs.clear();
+        self.frame_scratch.reset();
     }
 
     fn draw_subsectors(
@@ -103,14 +100,47 @@ impl Renderer for Software {
 
             for seg_idx in start..end {
                 if let Some(edge) = self.project_seg(seg_idx, level, camera) {
+                    // self.draw_line(edge.x_l, 0, edge.x_l, self.height as i32 - 1, 0x00FF0000);
+                    // self.draw_line(edge.x_r, 0, edge.x_r, self.height as i32 - 1, 0x00FF0000);
                     self.draw_edge(edge, seg_idx, level, texture_bank);
+
+                    // self.flush_planes(camera, texture_bank);
+                    // win.update_with_buffer(&self.scratch, self.width, self.height);
+                    // self.visplane_map.clear(self.width);
                 }
             }
         }
 
         self.flush_planes(camera, texture_bank);
 
-        self.draw_sprites(texture_bank);
+        self.draw_sprites(level, texture_bank);
+    }
+
+    fn draw_line(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, col: u32) {
+        let mut x0 = x0;
+        let mut y0 = y0;
+        let dx = (x1 - x0).abs();
+        let sx = if x0 < x1 { 1 } else { -1 };
+        let dy = -(y1 - y0).abs();
+        let sy = if y0 < y1 { 1 } else { -1 };
+        let mut err = dx + dy;
+        loop {
+            if (0..self.width as i32).contains(&x0) && (0..self.height as i32).contains(&y0) {
+                self.scratch[y0 as usize * self.width + x0 as usize] = col;
+            }
+            if x0 == x1 && y0 == y1 {
+                break;
+            }
+            let e2 = 2 * err;
+            if e2 >= dy {
+                err += dy;
+                x0 += sx;
+            }
+            if e2 <= dx {
+                err += dx;
+                y0 += sy;
+            }
+        }
     }
 
     fn end_frame<F>(&mut self, submit: F)
