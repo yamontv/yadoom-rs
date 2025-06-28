@@ -2,10 +2,38 @@ use crate::{
     renderer::software::Software,
     world::{
         camera::Camera,
-        geometry::{Level, SubsectorId},
+        geometry::{Level, SegmentId, SubsectorId},
         texture::{NO_TEXTURE, TextureBank, TextureId},
     },
 };
+use bitflags::bitflags;
+
+#[derive(Clone, Default)]
+pub struct DrawSeg {
+    pub cur_line: SegmentId,
+    pub x1: i32,
+    pub x2: i32,
+
+    pub scale1: f32,
+    pub scale2: f32,
+    pub scale_step: f32,
+
+    pub silhouette: Silhouette,
+    pub bsil_height: f32, // do not clip sprites above this
+    pub tsil_height: f32, // do not clip sprites below this
+
+    pub masked_mid: Option<TextureId>,
+}
+
+bitflags! {
+    #[derive(Default, Clone)]
+    pub struct Silhouette: u8 {
+        const NONE = 0x0000;
+        const BOTTOM = 0x0001;
+        const TOP    = 0x0002;
+        const SOLID  = 0x0003;
+    }
+}
 
 #[derive(Clone, Copy)]
 pub struct VisSprite {

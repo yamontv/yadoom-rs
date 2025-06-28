@@ -3,9 +3,12 @@ use crate::{
         Software,
         planes::{NO_PLANE, VisplaneId},
         projection::Edge,
+        sprites::{DrawSeg, Silhouette},
     },
-    world::geometry::{Level, Linedef, LinedefFlags, Sector, Seg, SegmentId, Sidedef},
-    world::texture::{NO_TEXTURE, Texture, TextureBank, TextureId},
+    world::{
+        geometry::{Level, Linedef, LinedefFlags, Sector, Seg, SegmentId, Sidedef},
+        texture::{NO_TEXTURE, Texture, TextureBank, TextureId},
+    },
 };
 
 #[derive(Clone, Copy, PartialEq)]
@@ -144,8 +147,8 @@ impl Software {
                 sec_front.floor_h as i16,
                 sec_front.floor_tex,
                 light,
-                edge.x_l.max(0) as u16,
-                edge.x_r.max(0) as u16,
+                edge.x_l as u16,
+                edge.x_r as u16,
             )
         } else {
             NO_PLANE
@@ -156,11 +159,39 @@ impl Software {
                 sec_front.ceil_h as i16,
                 sec_front.ceil_tex,
                 light,
-                edge.x_l.max(0) as u16,
-                edge.x_r.max(0) as u16,
+                edge.x_l as u16,
+                edge.x_r as u16,
             )
         } else {
             NO_PLANE
+        };
+
+        let scale1 = self.focal * edge.invz_l;
+        let scale2 = self.focal * edge.invz_r;
+        let scale_step = (scale2 - scale1) / ((edge.x_r - edge.x_l) as f32);
+
+        let masked_mid_tex = if sec_back_opt.is_some() {
+            let tex_id = sd_front.middle;
+            if tex_id != NO_TEXTURE {
+                Some(tex_id)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let mut ds = DrawSeg {
+            cur_line: seg_idx,
+            x1: edge.x_l,
+            x2: edge.x_r,
+            scale1,
+            scale2,
+            scale_step,
+            silhouette: Silhouette::NONE,
+            bsil_height: f32::MIN,
+            tsil_height: f32::MAX,
+            masked_mid: masked_mid_tex,
         };
 
         let pass = self.decide_pass(sec_front, sec_back_opt, sd_front, ld);
@@ -186,6 +217,7 @@ impl Software {
                     texture_bank,
                 );
                 self.add_solid_seg(edge.x_l, edge.x_r);
+                ds.silhouette = Silhouette::SOLID;
             }
             WallPass::TwoSided {
                 pegged,
@@ -227,8 +259,20 @@ impl Software {
                     cur_floor_vis,
                     texture_bank,
                 );
+
+                if upper_floor_h > world_bottom {
+                    ds.silhouette.insert(Silhouette::BOTTOM);
+                    ds.bsil_height = upper_floor_h; // world Z, not screen Y
+                }
+
+                if lower_ceil_h < world_top {
+                    ds.silhouette.insert(Silhouette::TOP);
+                    ds.tsil_height = lower_ceil_h; // world Z
+                }
             }
         }
+
+        self.drawsegs.push(ds);
     }
 
     fn decide_pass(

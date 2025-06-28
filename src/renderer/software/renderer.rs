@@ -1,5 +1,8 @@
 use crate::{
-    renderer::software::{planes::PlaneMap, sprites::VisSprite},
+    renderer::software::{
+        planes::PlaneMap,
+        sprites::{DrawSeg, VisSprite},
+    },
     renderer::{Renderer, Rgba},
     world::camera::Camera,
     world::geometry::{Level, SubsectorId},
@@ -26,6 +29,8 @@ pub struct Software {
     pub visplane_map: PlaneMap,
     pub solid_segs: Vec<ClipRange>,
     pub sprites: Vec<VisSprite>,
+    pub drawsegs: Vec<DrawSeg>,
+    pub sprite_bands: ClipBands,
 
     pub width: usize,
     pub height: usize,
@@ -50,6 +55,8 @@ impl Renderer for Software {
             self.scratch.resize(w * h, 0);
             self.clip_bands.ceil.resize(w, i16::MIN);
             self.clip_bands.floor.resize(w, i16::MAX);
+            self.sprite_bands.ceil.resize(w, i16::MIN);
+            self.sprite_bands.floor.resize(w, i16::MAX);
         }
         // dark‑grey clear
         self.scratch.fill(0xFF_20_20_20);
@@ -57,12 +64,15 @@ impl Renderer for Software {
         // fully open clips at start of frame
         self.clip_bands.ceil.fill(i16::MIN);
         self.clip_bands.floor.fill(i16::MAX);
+        self.sprite_bands.ceil.fill(i16::MIN);
+        self.sprite_bands.floor.fill(i16::MAX);
 
         self.init_solid_segs();
 
         self.visplane_map.clear(self.width);
 
         self.sprites.clear();
+        self.drawsegs.clear();
     }
 
     fn draw_subsectors(
