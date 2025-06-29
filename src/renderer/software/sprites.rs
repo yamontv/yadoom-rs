@@ -245,7 +245,8 @@ impl Software {
 
             let mut x = vis.x0.max(0);
             let x_end = vis.x1.min(self.width as i32 - 1);
-            let mut u_acc = 0.0_f32;
+            let x_clip_left = x - vis.x0; // how many columns we skipped
+            let mut u_acc = x_clip_left as f32 * vis.u_step;
 
             while x <= x_end {
                 let (ceil, floor) = self.column_clips(level, spr_scale, &vis, x, tex);
