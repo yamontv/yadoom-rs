@@ -43,38 +43,38 @@ pub struct WallSpan {
 
 /// Per‑column attributes advance linearly across the span.
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct Step {
-    duoz: f32,
-    dinvz: f32,
-    dytop: f32,
-    dybot: f32,
+struct WallStep {
+    du_over_z: f32,
+    d_inv_z: f32,
+    dy_top: f32,
+    dy_bot: f32,
 }
-impl Step {
+impl WallStep {
     #[inline]
     fn from_span(s: &WallSpan) -> Self {
         let w = (s.x_end - s.x_start).max(1) as f32;
         Self {
-            duoz: (s.u1_over_z - s.u0_over_z) / w,
-            dinvz: (s.inv_z1 - s.inv_z0) / w,
-            dytop: (s.y_top1 - s.y_top0) / w,
-            dybot: (s.y_bot1 - s.y_bot0) / w,
+            du_over_z: (s.u1_over_z - s.u0_over_z) / w,
+            d_inv_z: (s.inv_z1 - s.inv_z0) / w,
+            dy_top: (s.y_top1 - s.y_top0) / w,
+            dy_bot: (s.y_bot1 - s.y_bot0) / w,
         }
     }
 }
 
 /// Per‑column cursor that marches from left → right.
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct Cursor {
-    uoz: f32,
+struct WallCursor {
+    u_over_z: f32,
     inv_z: f32,
     y_top: f32,
     y_bot: f32,
 }
-impl Cursor {
+impl WallCursor {
     #[inline]
     fn from_span(s: &WallSpan) -> Self {
         Self {
-            uoz: s.u0_over_z,
+            u_over_z: s.u0_over_z,
             inv_z: s.inv_z0,
             y_top: s.y_top0,
             y_bot: s.y_bot0,
@@ -82,11 +82,11 @@ impl Cursor {
     }
 
     #[inline(always)]
-    fn advance(&mut self, s: &Step) {
-        self.uoz += s.duoz;
-        self.inv_z += s.dinvz;
-        self.y_top += s.dytop;
-        self.y_bot += s.dybot;
+    fn advance(&mut self, s: &WallStep) {
+        self.u_over_z += s.du_over_z;
+        self.inv_z += s.d_inv_z;
+        self.y_top += s.dy_top;
+        self.y_bot += s.dy_bot;
     }
 }
 
@@ -404,7 +404,7 @@ impl Software {
     fn draw_column(
         &mut self,
         col: usize,
-        cur: &Cursor,
+        cur: &WallCursor,
         span: &WallSpan,
         bank: &TextureBank,
         tex: &Texture,
@@ -421,7 +421,7 @@ impl Software {
         let mut v_mu = span.texturemid_mu + (y_min as f32 - self.half_h) * dv_mu;
 
         // Horizontal texture coordinate stays constant in a column.
-        let u_tex = ((cur.uoz / cur.inv_z) as i32).rem_euclid(tex.w as i32) as usize;
+        let u_tex = ((cur.u_over_z / cur.inv_z) as i32).rem_euclid(tex.w as i32) as usize;
 
         for y in y_min..=y_max {
             let v_tex = (v_mu as i32).rem_euclid(tex.h as i32) as usize;
@@ -440,8 +440,8 @@ impl Software {
         texture_bank: &TextureBank,
         ds: &mut DrawSeg,
     ) {
-        let step = Step::from_span(proto);
-        let mut cur = Cursor::from_span(proto);
+        let step = WallStep::from_span(proto);
+        let mut cur = WallCursor::from_span(proto);
 
         let tex = texture_bank
             .texture(proto.tex_id)
@@ -450,13 +450,13 @@ impl Software {
         for x in proto.x_start..=proto.x_end {
             let col = x as usize;
 
-            if self.clip_bands.ceil[col] < self.clip_bands.floor[col] {
+            let ceil_band = self.clip_bands.ceil[col];
+            let floor_band = self.clip_bands.floor[col];
+
+            if ceil_band < floor_band {
                 // part of the wall that was visible in this column
-                let y0 = cur.y_top.max((self.clip_bands.ceil[col] + 1) as f32).ceil() as i16;
-                let y1 = cur
-                    .y_bot
-                    .min((self.clip_bands.floor[col] - 1) as f32)
-                    .floor() as i16;
+                let y0 = cur.y_top.max((ceil_band + 1) as f32).ceil() as i16;
+                let y1 = cur.y_bot.min((floor_band - 1) as f32).floor() as i16;
 
                 if proto.tex_id != NO_TEXTURE && self.column_visible(col, cur.y_top, cur.y_bot) {
                     self.draw_column(
@@ -471,8 +471,8 @@ impl Software {
                 }
 
                 if let Some(vp) = self.visplane_map.get(ceil_vis) {
-                    let top = self.clip_bands.ceil[col] + 1;
-                    let bottom = (y0 - 1).min(self.clip_bands.floor[col] - 1);
+                    let top = ceil_band + 1;
+                    let bottom = (y0 - 1).min(floor_band - 1);
 
                     if top <= bottom {
                         vp.modified = true;
@@ -482,8 +482,8 @@ impl Software {
                 }
 
                 if let Some(vp) = self.visplane_map.get(floor_vis) {
-                    let top = (y1 + 1).max(self.clip_bands.ceil[col]);
-                    let bottom = self.clip_bands.floor[col];
+                    let top = (y1 + 1).max(ceil_band);
+                    let bottom = floor_band;
                     if top <= bottom {
                         vp.modified = true;
                         vp.top[col] = top.max(0) as u16;
@@ -503,7 +503,7 @@ impl Software {
                     }
                     ClipKind::Lower => {
                         if proto.tex_id != NO_TEXTURE || floor_vis != NO_PLANE {
-                            self.clip_bands.floor[col] = self.clip_bands.floor[col].min(y0 - 1);
+                            self.clip_bands.floor[col] = floor_band.min(y0 - 1);
                         }
                     }
                 }
@@ -511,7 +511,7 @@ impl Software {
 
             cur.advance(&step);
 
-            self.store_wall_range(ds, col, (cur.uoz / cur.inv_z) as i32);
+            self.store_wall_range(ds, col, (cur.u_over_z / cur.inv_z) as i32);
         }
     }
 }

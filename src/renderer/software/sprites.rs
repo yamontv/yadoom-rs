@@ -149,6 +149,9 @@ impl Software {
 
     pub fn store_wall_range(&mut self, ds: &mut DrawSeg, col: usize, uoz_invz: i32) {
         let idx = col - ds.x1 as usize;
+
+        debug_assert!(idx < ds.masked_cols.len());
+
         if ds.silhouette.contains(Silhouette::TOP) {
             self.frame_scratch.openings[ds.top_clip.start + idx] = self.clip_bands.ceil[col];
         }
