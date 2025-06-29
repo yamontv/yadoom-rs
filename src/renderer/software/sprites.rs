@@ -33,6 +33,10 @@ impl FrameScratch {
     }
 }
 
+// one column entry already holds the U-coordinate (0‥tex.w-1)
+// we reserve -1 to mean “already rendered”
+const MASKED_DONE: i16 = -1;
+
 #[derive(Clone, Default)]
 pub struct DrawSeg {
     pub cur_line: SegmentId,
@@ -48,6 +52,14 @@ pub struct DrawSeg {
     pub tsil_height: f32, // do not clip sprites below this
 
     pub masked_mid: TextureId,
+    pub masked_mid_w: i32,
+    pub z_top: f32, // front sector ceiling world-Z
+    pub z_bot: f32, // front sector floor   world-Z
+
+    // per-column *flag* slice:
+    //   >=0  – u already filled by wall loop
+    //   -1   – column was rendered during sprite pass
+    pub masked_cols: Range<usize>,
 
     /// Pointers into the global `openings` pool (or empty slices if not needed)
     pub top_clip: Range<usize>,
@@ -96,14 +108,24 @@ fn sprite_for(type_id: u16, tex_bank: &TextureBank) -> TextureId {
 
 impl Software {
     pub fn create_draw_seg(
-        &self,
+        &mut self,
         seg_idx: SegmentId,
         edge: &Edge,
+        z_top: f32,
+        z_bot: f32,
         masked_mid: TextureId,
+        texture_bank: &TextureBank,
     ) -> DrawSeg {
         let scale1 = self.focal * edge.invz_l;
         let scale2 = self.focal * edge.invz_r;
         let scale_step = (scale2 - scale1) / ((edge.x_r - edge.x_l) as f32);
+        let count = (edge.x_r - edge.x_l + 1) as usize;
+
+        let masked_mid_w = if masked_mid != NO_TEXTURE {
+            texture_bank.texture(masked_mid).unwrap().w as i32
+        } else {
+            0
+        };
 
         DrawSeg {
             cur_line: seg_idx,
@@ -116,34 +138,28 @@ impl Software {
             bsil_height: f32::MIN,
             tsil_height: f32::MAX,
             masked_mid: masked_mid,
-            top_clip: 0..0,
-            bot_clip: 0..0,
+            masked_mid_w,
+            z_top,
+            z_bot,
+            masked_cols: self.frame_scratch.alloc(count),
+            top_clip: self.frame_scratch.alloc(count),
+            bot_clip: self.frame_scratch.alloc(count),
         }
     }
 
-    pub fn update_draw_seg_clips(&mut self, ds: &mut DrawSeg) {
-        let count = (ds.x2 - ds.x1 + 1) as usize;
-
+    pub fn store_wall_range(&mut self, ds: &mut DrawSeg, col: usize, uoz_invz: i32) {
+        let idx = col - ds.x1 as usize;
         if ds.silhouette.contains(Silhouette::TOP) {
-            let range = self.frame_scratch.alloc(count);
-            for i in 0..count {
-                self.frame_scratch.openings[range.start + i] =
-                    self.clip_bands.ceil[ds.x1 as usize + i];
-            }
-            ds.top_clip = range;
-        } else {
-            ds.top_clip = 0..0;
+            self.frame_scratch.openings[ds.top_clip.start + idx] = self.clip_bands.ceil[col];
         }
 
         if ds.silhouette.contains(Silhouette::BOTTOM) {
-            let range = self.frame_scratch.alloc(count);
-            for i in 0..count {
-                self.frame_scratch.openings[range.start + i] =
-                    self.clip_bands.floor[ds.x1 as usize + i];
-            }
-            ds.bot_clip = range;
-        } else {
-            ds.bot_clip = 0..0;
+            self.frame_scratch.openings[ds.bot_clip.start + idx] = self.clip_bands.floor[col];
+        }
+
+        if ds.masked_mid != NO_TEXTURE {
+            self.frame_scratch.openings[ds.masked_cols.start + idx] =
+                uoz_invz.rem_euclid(ds.masked_mid_w) as i16;
         }
     }
 
@@ -218,106 +234,195 @@ impl Software {
         self.sprites.append(&mut out);
     }
 
-    pub fn draw_sprites(&mut self, level: &Level, tex_bank: &TextureBank) {
-        let openings = &self.frame_scratch.openings; // clip rows arena
-        let focal = self.focal; // already stored in Software
+    pub fn draw_sprites(&mut self, level: &Level, tex: &TextureBank) {
+        let focal = self.focal;
+        let h_scr = self.height as i32;
 
-        for spr in &self.sprites {
-            // Sprite's “scale” in the same metric the walls use
-            let spr_scale = focal * spr.invz;
+        for i in 0..self.sprites.len() {
+            let vis = self.sprites[i]; // copy: no borrow lives
+            let tex_spr = tex.texture(vis.tex).unwrap();
+            let spr_scale = focal * vis.invz;
 
-            let tex = tex_bank.texture(spr.tex).unwrap();
-            let u_inc = spr.u_step;
+            let mut x = vis.x0.max(0);
+            let x_end = vis.x1.min(self.width as i32 - 1);
+            let mut u_acc = 0.0_f32;
 
-            let mut x = spr.x0.max(0);
-            let x_end = spr.x1.min(self.width as i32 - 1);
-            let mut u_f = 0.0_f32;
-
-            // ------------------------------------------------ column loop ----
             while x <= x_end {
-                // --------- clip bands built from nearer drawsegs ------------
-                let mut ceil = -1; // fully open above
-                let mut floor = self.height as i32; // fully open below
-
-                // drawsegs were pushed back-to-front ⇒ walk in reverse
-                for ds in self.drawsegs.iter().rev() {
-                    // seg does not touch this column
-                    if x < ds.x1 || x > ds.x2 {
-                        continue;
-                    }
-
-                    let max_scale = ds.scale1.max(ds.scale2);
-                    let low_scale = ds.scale1.min(ds.scale2);
-
-                    let seg_is_behind = if max_scale < spr_scale {
-                        true // both edges farther
-                    } else if low_scale < spr_scale {
-                        // one edge closer, one edge farther → need side test
-                        Self::point_on_seg_backside(level, spr.gx, spr.gy, ds.cur_line)
-                    } else {
-                        false // unquestionably in front
-                    };
-                    if seg_is_behind {
-                        continue;
-                    }
-
-                    // TOP silhouette
-                    if ds.silhouette.contains(Silhouette::TOP) {
-                        let idx = ds.top_clip.start + (x - ds.x1) as usize;
-                        ceil = ceil.max(openings[idx] as i32);
-                    }
-                    // BOTTOM silhouette
-                    if ds.silhouette.contains(Silhouette::BOTTOM) {
-                        let idx = ds.bot_clip.start + (x - ds.x1) as usize;
-                        floor = floor.min(openings[idx] as i32);
-                    }
-
-                    if ceil >= floor {
-                        break; // sprite column fully hidden
-                    }
-                }
+                let (ceil, floor) = self.column_clips(level, spr_scale, &vis, x, tex);
 
                 if ceil >= floor {
-                    u_f += u_inc;
+                    u_acc += vis.u_step;
                     x += 1;
-                    continue; // nothing visible in this column
+                    continue;
                 }
 
-                // ---------------- draw the sprite column -------------------
-                let u = u_f as usize;
-                if u >= tex.w {
+                // intersect with sprite’s own Y span
+                let y0 = ceil.max(vis.y0).max(0);
+                let y1 = floor.min(vis.y1).min(h_scr - 1);
+
+                let u = u_acc as usize;
+                if u >= tex_spr.w {
                     break;
                 }
 
-                let y0_clip = ceil.max(spr.y0).max(0);
-                let y1_clip = floor.min(spr.y1).min(self.height as i32 - 1);
+                let v_step = tex_spr.h as f32 / (vis.y1 - vis.y0 + 1) as f32;
+                let mut v_acc = (y0 - vis.y0) as f32 * v_step;
 
-                let v_step = tex.h as f32 / (spr.y1 - spr.y0 + 1) as f32;
-                let mut v_f = (y0_clip - spr.y0) as f32 * v_step;
-
-                for y in y0_clip..=y1_clip {
-                    let v = v_f as usize;
-                    if v >= tex.h {
-                        break;
+                for y in y0..=y1 {
+                    let v = (v_acc as usize).min(tex_spr.h - 1);
+                    let idx = tex_spr.pixels[v * tex_spr.w + u];
+                    if idx != 0 {
+                        self.scratch[y as usize * self.width + x as usize] = tex.get_color(0, idx);
                     }
-                    let idx = tex.pixels[v * tex.w + u];
+                    v_acc += v_step;
+                }
+
+                u_acc += vis.u_step;
+                x += 1;
+            }
+        }
+
+        // second pass: any masked mids not yet drawn
+        for ds_idx in (0..self.drawsegs.len()).rev() {
+            if self.drawsegs[ds_idx].masked_mid != NO_TEXTURE {
+                let ds = &self.drawsegs[ds_idx];
+                self.render_masked_seg_range(ds_idx, ds.x1, ds.x2, tex);
+            }
+        }
+    }
+
+    fn column_clips(
+        &mut self,
+        level: &Level,
+        spr_scale: f32,
+        vis: &VisSprite,
+        x: i32,
+        tex: &TextureBank,
+    ) -> (i32, i32) {
+        let mut ceil = -1;
+        let mut floor = self.height as i32;
+
+        for ds_idx in (0..self.drawsegs.len()).rev() {
+            let (behind, masked, t_idx, b_idx) = {
+                let ds = &self.drawsegs[ds_idx];
+                if x < ds.x1 || x > ds.x2 {
+                    continue;
+                }
+
+                let max = ds.scale1.max(ds.scale2);
+                let min = ds.scale1.min(ds.scale2);
+                let back = if max < spr_scale {
+                    true
+                } else if min < spr_scale {
+                    Self::point_on_seg_backside(level, vis.gx, vis.gy, ds.cur_line)
+                } else {
+                    false
+                };
+
+                (
+                    back,
+                    ds.masked_mid != NO_TEXTURE,
+                    ds.silhouette
+                        .contains(Silhouette::TOP)
+                        .then(|| ds.top_clip.start + (x - ds.x1) as usize),
+                    ds.silhouette
+                        .contains(Silhouette::BOTTOM)
+                        .then(|| ds.bot_clip.start + (x - ds.x1) as usize),
+                )
+            }; // borrow ends here
+
+            if behind {
+                if masked {
+                    self.render_masked_seg_range(ds_idx, x, x, tex);
+                }
+                continue;
+            }
+
+            if let Some(i) = t_idx {
+                ceil = ceil.max(self.frame_scratch.openings[i] as i32);
+            }
+            if let Some(i) = b_idx {
+                floor = floor.min(self.frame_scratch.openings[i] as i32);
+            }
+
+            if ceil >= floor {
+                break;
+            }
+        }
+
+        (ceil, floor)
+    }
+
+    fn render_masked_seg_range(&mut self, ds_idx: usize, x0: i32, x1: i32, tex_bank: &TextureBank) {
+        let ds = &self.drawsegs[ds_idx];
+        let openings = &mut self.frame_scratch.openings;
+        let tex_mid = tex_bank.texture(ds.masked_mid).unwrap();
+
+        // ------------------------------------------------------------------
+        // vertical stepping
+        // ------------------------------------------------------------------
+        let mut scale = ds.scale1 + (x0 - ds.x1) as f32 * ds.scale_step;
+
+        for x in x0..=x1 {
+            let col = (x - ds.x1) as usize;
+            let ds_top_clip = openings[ds.top_clip.start + col] as i32 + 1;
+            let ds_bot_clip = openings[ds.bot_clip.start + col] as i32 - 1;
+            let entry = &mut openings[ds.masked_cols.start + col];
+            if *entry == MASKED_DONE {
+                scale += ds.scale_step;
+                continue; // already rendered
+            }
+
+            // integer texel column
+            let u = *entry as usize; // 0 … tex_mid.w-1
+
+            // ------- project vertical extents --------------------------------
+            let y_top = (self.half_h as f32 - (ds.z_top - self.view_z) * scale).floor() as i32;
+            let y_bot = (self.half_h as f32 - (ds.z_bot - self.view_z) * scale).ceil() as i32;
+
+            let mut y0 = y_top.max(0);
+            let mut y1 = y_bot.min(self.height as i32 - 1);
+
+            if ds.silhouette.contains(Silhouette::TOP) {
+                y0 = y0.max(ds_top_clip);
+            }
+            if ds.silhouette.contains(Silhouette::BOTTOM) {
+                y1 = y1.min(ds_bot_clip);
+            }
+
+            // ------- draw the column ----------------------------------------
+            if y0 <= y1 {
+                let v_step = tex_mid.h as f32 / (y_bot - y_top + 1) as f32;
+                let mut v_f = (y0 - y_top) as f32 * v_step;
+
+                for y in y0..=y1 {
+                    let v = (v_f as usize).min(tex_mid.h - 1);
+                    let idx = tex_mid.pixels[v * tex_mid.w + u];
                     if idx != 0 {
                         self.scratch[y as usize * self.width + x as usize] =
                             tex_bank.get_color(0, idx);
                     }
                     v_f += v_step;
                 }
-
-                u_f += u_inc;
-                x += 1;
             }
+
+            *entry = MASKED_DONE; // mark drawn
+            scale += ds.scale_step;
         }
     }
 
     fn point_on_seg_backside(level: &Level, px: f32, py: f32, seg_id: SegmentId) -> bool {
         let seg = &level.segs[seg_id as usize];
-        let v1 = &level.vertices[seg.v1 as usize];
-        let v2 = &level.vertices[seg.v2 as usize];
-        ((px - v1.pos.x) * (v2.pos.y - v1.pos.y) - (py - v1.pos.y) * (v2.pos.x - v1.pos.x)) < 0.0
+        let v1 = &level.vertices[seg.v1 as usize].pos;
+        let v2 = &level.vertices[seg.v2 as usize].pos;
+
+        // Doom’s exact R_PointOnSegSide test:
+        //   back side (dy * dx1  -  dx * dy1) > 0
+        let dx = v2.x - v1.x;
+        let dy = v2.y - v1.y;
+        let dx1 = px - v1.x;
+        let dy1 = py - v1.y;
+
+        (dy * dx1 - dx * dy1) > 0.0 // true  == sprite is on back side
     }
 }

@@ -19,6 +19,7 @@ pub const NO_TEXTURE: TextureId = 0;
 /// to the GPU and drop the CPU copy if desired.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Texture {
+    pub name: String,
     pub w: usize,
     pub h: usize,
     pub pixels: Vec<u8>,
@@ -39,6 +40,7 @@ impl Default for Texture {
             }
         }
         Texture {
+            name: "CHECKER".to_string(),
             w: 8,
             h: 8,
             pixels: pix,
@@ -213,6 +215,7 @@ mod tests {
 
     fn dummy_tex(color: u8) -> Texture {
         Texture {
+            name: "Dummy".to_string(),
             w: 2,
             h: 2,
             pixels: vec![color; 4],

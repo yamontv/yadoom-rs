@@ -3,7 +3,7 @@ use crate::{
         Software,
         planes::{NO_PLANE, VisplaneId},
         projection::Edge,
-        sprites::Silhouette,
+        sprites::{DrawSeg, Silhouette},
     },
     world::{
         geometry::{Level, Linedef, LinedefFlags, Sector, Seg, SegmentId, Sidedef},
@@ -169,11 +169,14 @@ impl Software {
         let mut ds = self.create_draw_seg(
             seg_idx,
             &edge,
+            sec_front.ceil_h,
+            sec_front.floor_h,
             if sec_back_opt.is_some() {
                 sd_front.middle
             } else {
                 NO_TEXTURE
             },
+            texture_bank,
         );
 
         let pass = self.decide_pass(sec_front, sec_back_opt, sd_front, ld);
@@ -185,6 +188,7 @@ impl Software {
                 world_bottom,
                 middle_texture,
             } => {
+                ds.silhouette = Silhouette::SOLID;
                 self.push_wall(
                     &edge,
                     world_top,
@@ -197,9 +201,9 @@ impl Software {
                     ceil_vis,
                     floor_vis,
                     texture_bank,
+                    &mut ds,
                 );
                 self.add_solid_seg(edge.x_l, edge.x_r);
-                ds.silhouette = Silhouette::SOLID;
             }
             WallPass::TwoSided {
                 pegged,
@@ -214,6 +218,17 @@ impl Software {
             } => {
                 let cur_floor_vis = if mark_floor { floor_vis } else { NO_PLANE };
                 let cur_ceil_vis = if mark_ceiling { ceil_vis } else { NO_PLANE };
+
+                if upper_floor_h > world_bottom {
+                    ds.silhouette.insert(Silhouette::BOTTOM);
+                    ds.bsil_height = upper_floor_h; // world Z, not screen Y
+                }
+
+                if lower_ceil_h < world_top {
+                    ds.silhouette.insert(Silhouette::TOP);
+                    ds.tsil_height = lower_ceil_h; // world Z
+                }
+
                 self.push_wall(
                     &edge,
                     world_top,
@@ -226,6 +241,7 @@ impl Software {
                     cur_ceil_vis,
                     NO_PLANE,
                     texture_bank,
+                    &mut ds,
                 );
 
                 self.push_wall(
@@ -240,21 +256,10 @@ impl Software {
                     NO_PLANE,
                     cur_floor_vis,
                     texture_bank,
+                    &mut ds,
                 );
-
-                if upper_floor_h > world_bottom {
-                    ds.silhouette.insert(Silhouette::BOTTOM);
-                    ds.bsil_height = upper_floor_h; // world Z, not screen Y
-                }
-
-                if lower_ceil_h < world_top {
-                    ds.silhouette.insert(Silhouette::TOP);
-                    ds.tsil_height = lower_ceil_h; // world Z
-                }
             }
         }
-
-        self.update_draw_seg_clips(&mut ds);
 
         self.drawsegs.push(ds);
     }
@@ -353,6 +358,7 @@ impl Software {
         ceil_vis: VisplaneId,
         floor_vis: VisplaneId,
         texture_bank: &TextureBank,
+        ds: &mut DrawSeg,
     ) {
         let texturemid_mu = match (kind, pegged) {
             (ClipKind::Lower, true) => (ceil_h - self.view_z) + y_off,
@@ -385,6 +391,7 @@ impl Software {
             ceil_vis,
             floor_vis,
             texture_bank,
+            ds,
         );
     }
 
@@ -431,6 +438,7 @@ impl Software {
         ceil_vis: VisplaneId,
         floor_vis: VisplaneId,
         texture_bank: &TextureBank,
+        ds: &mut DrawSeg,
     ) {
         let step = Step::from_span(proto);
         let mut cur = Cursor::from_span(proto);
@@ -502,6 +510,8 @@ impl Software {
             }
 
             cur.advance(&step);
+
+            self.store_wall_range(ds, col, (cur.uoz / cur.inv_z) as i32);
         }
     }
 }

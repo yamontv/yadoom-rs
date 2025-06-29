@@ -22,11 +22,13 @@ fn main() -> anyhow::Result<()> {
     let mut level = loader::load_level(&wad, wad.level_indices()[map_idx], &mut texture_bank)?;
     level.finalise_bsp();
 
+    println!("Doom level: {}", level.name);
+
     let player = level.things.iter().find(|t| t.type_id == 1).unwrap();
     let mut camera = Camera::new(player.pos.extend(41.0), player.angle, 90_f32.to_radians());
     // let mut camera = Camera::new(
-    //     glam::Vec3::new(2977.2725, -2860.554, 41.0),
-    //     5.2509475,
+    //     glam::Vec3::new(-1332.4185, -3119.4766, 41.0),
+    //     1.5707964,
     //     1.5707964,
     // );
 

@@ -292,7 +292,7 @@ fn decode_all_patches(wad: &Wad) -> Result<Vec<Texture>, WadError> {
         let name_bytes: &[u8; 8] = (&bytes[4 + i * 8..4 + i * 8 + 8]).try_into().unwrap();
         let name = Wad::lump_name_str(name_bytes);
         if let Some(id) = wad.find_lump(name) {
-            vec.push(decode_patch(wad.lump_bytes(id)?));
+            vec.push(decode_patch(name, wad.lump_bytes(id)?));
         } else {
             vec.push(Texture::default()); // unlikely but keeps indices aligned
         }
@@ -300,7 +300,7 @@ fn decode_all_patches(wad: &Wad) -> Result<Vec<Texture>, WadError> {
     Ok(vec)
 }
 
-fn decode_patch(raw: &[u8]) -> Texture {
+fn decode_patch(name: &str, raw: &[u8]) -> Texture {
     let w = u16::from_le_bytes(raw[0..2].try_into().unwrap()) as usize;
     let h = u16::from_le_bytes(raw[2..4].try_into().unwrap()) as usize;
     let mut pix = vec![0u8; w * h];
@@ -320,7 +320,12 @@ fn decode_patch(raw: &[u8]) -> Texture {
             p += len + 1;
         }
     }
-    Texture { w, h, pixels: pix }
+    Texture {
+        name: name.into(),
+        w,
+        h,
+        pixels: pix,
+    }
 }
 
 /*-------------------- wall texture compose --------------------------*/
@@ -342,13 +347,13 @@ fn build_wall_texture(wad: &Wad, patches: &[Texture], name: &str) -> Option<Text
             if !e_name.eq_ignore_ascii_case(name) {
                 continue;
             }
-            return Some(compose_texture(entry, patches));
+            return Some(compose_texture(e_name, entry, patches));
         }
     }
     None
 }
 
-fn compose_texture(entry: &[u8], patches: &[Texture]) -> Texture {
+fn compose_texture(name: &str, entry: &[u8], patches: &[Texture]) -> Texture {
     let w_tex = i16::from_le_bytes(entry[12..14].try_into().unwrap()) as usize;
     let h_tex = i16::from_le_bytes(entry[14..16].try_into().unwrap()) as usize;
     let np = u16::from_le_bytes(entry[20..22].try_into().unwrap()) as usize;
@@ -363,6 +368,7 @@ fn compose_texture(entry: &[u8], patches: &[Texture]) -> Texture {
         pinfo = &pinfo[10..];
     }
     Texture {
+        name: name.into(),
         w: w_tex,
         h: h_tex,
         pixels: canvas,
@@ -401,6 +407,7 @@ fn decode_flat(wad: &Wad, name: &str) -> Option<Texture> {
         rgba.push(b);
     }
     Some(Texture {
+        name: name.into(),
         w: 64,
         h: 64,
         pixels: rgba,
@@ -413,7 +420,7 @@ fn load_all_sprites(wad: &Wad, bank: &mut TextureBank) -> Result<(), LoadError> 
 
     for idx in start_index..end_index {
         let name = Wad::lump_name_str(&wad.lumps()[idx].name);
-        bank.insert(name, decode_patch(wad.lump_bytes(idx)?))?;
+        bank.insert(name, decode_patch(name, wad.lump_bytes(idx)?))?;
     }
 
     Ok(())
