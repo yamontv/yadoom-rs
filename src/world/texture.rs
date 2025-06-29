@@ -109,6 +109,8 @@ pub struct TextureBank {
     data: Vec<Texture>,
     palette: Palette,
     colormap: Colormap,
+    /// Pre-computed [ shade<<8 | color ] → ARGB.
+    shade_table: Vec<u32>,
 }
 
 impl TextureBank {
@@ -127,6 +129,7 @@ impl TextureBank {
             data: vec![missing_tex],
             palette: Palette::default(),
             colormap: Colormap::default(),
+            shade_table: Vec::new(),
         }
     }
 
@@ -136,11 +139,6 @@ impl TextureBank {
 
     pub fn set_colormap(&mut self, colormap: Colormap) {
         self.colormap = colormap;
-    }
-
-    pub fn get_color(&self, shade_idx: u8, texel: u8) -> u32 {
-        let pal_idx = self.colormap[shade_idx as usize][texel as usize];
-        self.palette[pal_idx as usize]
     }
 
     pub fn default_with_checker() -> Self {
@@ -203,6 +201,31 @@ impl TextureBank {
         self.data.push(tex);
         self.by_name.insert(name, id);
         Ok(id)
+    }
+
+    pub fn build_shade_table(&mut self) {
+        const ROWS: usize = 34; // 0-31 light, 32 invul, 33 torch
+        const COLS: usize = 256;
+
+        self.shade_table.clear();
+        self.shade_table.reserve_exact(ROWS * COLS);
+
+        for row in 0..ROWS {
+            for texel in 0..COLS {
+                // Step 1: remap texel through COLORMAP
+                let pal_idx = self.colormap[row][texel];
+
+                // Step 2: convert palette entry to ARGB
+                let argb = self.palette[pal_idx as usize];
+
+                self.shade_table.push(argb);
+            }
+        }
+    }
+
+    #[inline(always)]
+    pub fn get_color(&self, shade_idx: u8, texel: u8) -> u32 {
+        self.shade_table[(shade_idx as usize) << 8 | (texel as usize)]
     }
 }
 

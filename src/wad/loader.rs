@@ -65,6 +65,8 @@ pub fn load_level(
 
     bank.set_colormap(colormap);
 
+    bank.build_shade_table();
+
     load_all_sprites(wad, bank)?;
 
     /*----- 3. Patch cache (index → Texture) ------------------------------*/

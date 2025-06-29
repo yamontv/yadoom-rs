@@ -31,23 +31,6 @@ pub struct VisPlane {
     pub modified: bool,
 }
 
-#[derive(Clone, Debug)]
-pub struct PlaneSpan {
-    pub tex_id: TextureId,
-    pub light: i16,
-    /* perspective-correct UV/z at span edges */
-    pub u0_over_z: f32,
-    pub v0_over_z: f32,
-    pub u1_over_z: f32,
-    pub v1_over_z: f32,
-    pub inv_z0: f32,
-    pub inv_z1: f32,
-    /* screen extents */
-    pub y: u16,
-    pub x_start: u16,
-    pub x_end: u16,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct PlaneKey {
     height: i16,
@@ -130,9 +113,12 @@ impl PlaneMap {
         let unionl = min_x.min(plane.min_x);
         let unionh = max_x.max(plane.max_x);
 
-        for x in intrl..=intrh {
-            if plane.top[x as usize] != u16::MAX {
-                return false;
+        let lo = intrl as usize;
+        let hi = intrh as usize;
+
+        if lo <= hi {
+            if plane.top[lo..=hi].iter().any(|&v| v != u16::MAX) {
+                return false; // part of the span already drawn
             }
         }
 
@@ -141,6 +127,29 @@ impl PlaneMap {
 
         // use the same one
         true
+    }
+}
+
+/// (u, v) coordinate *at the current pixel*.
+#[derive(Copy, Clone)]
+struct UVCursor {
+    u: f32,
+    v: f32,
+}
+
+/// Δ(u, v) when you advance exactly one screen-pixel to the right.
+#[derive(Copy, Clone)]
+struct UVStep {
+    du: f32,
+    dv: f32,
+}
+
+impl UVCursor {
+    /// Advance the cursor one screen pixel to the right.
+    #[inline(always)]
+    fn advance(&mut self, s: &UVStep) {
+        self.u += s.du;
+        self.v += s.dv;
     }
 }
 
@@ -208,7 +217,6 @@ impl Software {
 
         // positive distance along view direction ------------------------------
         let z = self.focal * ratio.abs(); // == |plane_h| * f / |dy|
-        let inv_z = 1.0 / z;
 
         // screen-space helpers -------------------------------------------------
         let left_scr = (x_start as f32 + 0.5) - self.half_w;
@@ -222,98 +230,65 @@ impl Software {
              + *cam_right * (left_scr * ratio); // **signed** lateral shift
 
         // world-space step per pixel along X ----------------------------------
-        let du = *cam_right * (step_scr * ratio); // **signed**
+        let d_world = *cam_right * (step_scr * ratio); // **signed**
 
         // endpoints -----------------------------------------------------------
-        let world0 = base;
-        let world1 = base + du * w_px;
+        let world_left = base;
+        let world_right = base + d_world * w_px;
 
-        let u0oz = world0.x * inv_z;
-        let v0oz = world0.y * inv_z;
-        let u1oz = world1.x * inv_z; // z is constant, reuse inv_z
-        let v1oz = world1.y * inv_z;
+        // Δ texture U,V per screen pixel – pre-multiplied so the inner loop needs
+        // just one fused-add operation.
+        let step = UVStep {
+            du: (world_right.x - world_left.x) / w_px,
+            dv: (world_right.y - world_left.y) / w_px,
+        };
 
-        self.draw_plane(
-            PlaneSpan {
-                tex_id: vp.tex,
-                light: vp.light,
-                u0_over_z: u0oz,
-                v0_over_z: v0oz,
-                u1_over_z: u1oz,
-                v1_over_z: v1oz,
-                inv_z0: inv_z, // identical at both ends
-                inv_z1: inv_z,
-                y,
-                x_start,
-                x_end,
-            },
-            bank,
-        );
+        let cursor = UVCursor {
+            u: world_left.x,
+            v: world_left.y,
+        };
+
+        self.draw_plane(vp.tex, vp.light, y, x_start, x_end, step, cursor, bank);
     }
 
     #[inline(always)]
-    fn draw_plane(&mut self, span: PlaneSpan, bank: &TextureBank) {
+    fn draw_plane(
+        &mut self,
+        tex_id: TextureId,
+        light: i16,
+        y_row: u16,
+        x0: u16,
+        x1: u16,
+        step: UVStep,
+        mut cursor: UVCursor,
+        bank: &TextureBank,
+    ) {
         let tex = bank
-            .texture(span.tex_id)
+            .texture(tex_id)
             .unwrap_or_else(|_| bank.texture(NO_TEXTURE).unwrap());
 
         // per-pixel deltas in 1/z-space
-        let w = (span.x_end - span.x_start).max(1) as f32;
-        let du = (span.u1_over_z - span.u0_over_z) / w;
-        let dv = (span.v1_over_z - span.v0_over_z) / w;
-        let dz = (span.inv_z1 - span.inv_z0) / w;
-
-        let mut uoz = span.u0_over_z;
-        let mut voz = span.v0_over_z;
-        let mut iz = span.inv_z0;
-
-        let row_idx = span.y as usize * self.width;
+        let row_idx = y_row as usize * self.width;
         let row = &mut self.scratch[row_idx..][..self.width];
 
-        let base_sh = ((255 - span.light) >> 3) as usize;
+        let base_sh = (255u16.saturating_sub(light as u16) >> 3) as u8;
 
-        // -------- render in small groups to reuse a single reciprocal ----------
-        const G: usize = 8; // group size
-        let mut x = span.x_start as usize;
-        while x + G - 1 <= span.x_end as usize {
-            // one reciprocal gives ≈7–8 ulp accuracy after one NR step
-            let mut w = iz.recip(); // fast (≈4 cycles)
-            w = w * (2.0 - iz * w); // Newton–Raphson refine
+        debug_assert!(
+            tex.w.is_power_of_two() && tex.h.is_power_of_two(),
+            "textures must be POT"
+        );
 
-            for g in 0..G {
-                let u = ((uoz * w) as i32).rem_euclid(tex.w as i32) as usize;
-                let v = ((voz * w) as i32).rem_euclid(tex.h as i32) as usize;
-                let col = tex.pixels[v * tex.w + u];
+        let u_mask = (tex.w - 1) as i32;
+        let v_mask = (tex.h - 1) as i32;
 
-                // let dist_idx = ((1.0 / iz) / DIST_FADE_FULL * 31.0).min(31.0) as usize;
-                // let shade = (base_sh + dist_idx).min(31) as u8;
-                let shade = base_sh as u8;
-
-                row[x + g] = bank.get_color(shade, col);
-
-                uoz += du;
-                voz += dv;
-                iz += dz;
-            }
-            x += G;
-        }
-
-        // tail ( < G pixels ) — fall back to the scalar path
-        for x in x..=span.x_end as usize {
-            let w = iz.recip();
-            let u = ((uoz * w) as i32).rem_euclid(tex.w as i32) as usize;
-            let v = ((voz * w) as i32).rem_euclid(tex.h as i32) as usize;
+        for x in x0..=x1 {
+            let u = ((cursor.u as i32) & u_mask) as usize;
+            let v = ((cursor.v as i32) & v_mask) as usize;
             let col = tex.pixels[v * tex.w + u];
 
-            // let dist_idx = ((1.0 / iz) / DIST_FADE_FULL * 31.0).min(31.0) as usize;
-            // let shade = (base_sh + dist_idx).min(31) as u8;
-            let shade = base_sh as u8;
+            row[x as usize] = bank.get_color(base_sh, col);
 
-            row[x] = bank.get_color(shade, col);
-
-            uoz += du;
-            voz += dv;
-            iz += dz;
+            cursor.advance(&step);
         }
     }
 }

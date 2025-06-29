@@ -1,5 +1,5 @@
 use crate::world::camera::Camera;
-use crate::world::geometry::{Aabb, Level, Node, SubsectorId, Vertex, VertexId};
+use crate::world::geometry::{Aabb, Level, Node, SubsectorId};
 use glam::Vec2;
 
 pub const CHILD_MASK: u16 = 0x7FFF;
