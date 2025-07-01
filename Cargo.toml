@@ -4,18 +4,28 @@ description = "Yet Another Doom in Rust"
 name = "yadoom_rs"
 version = "0.1.0"
 edition = "2024"
+default-run  = "view_sw"
 
 [dependencies]
 bincode = "2.0.1"
 minifb = { version = "0.28", default-features = false, features = ["x11"] }
 anyhow = "1.0" 
-glam = "0.30.3"
+glam = "0.30.4"
 thiserror = "2.0.12"
 byteorder = "1.5"
 regex     = "1"
 once_cell = "1"
 bitflags = "2.9.1"
+clap  = { version = "4.5", features = ["derive"] }
 
 [profile.release]
 debug = true
 strip = false
+
+[[bin]]
+name = "gen_mobjinfo"          # `cargo run --bin gen_mobjinfo`
+path = "tools/gen_mobjinfo.rs"
+
+[[bin]]
+name = "view_sw"
+path = "src/bin/view_sw.rs"
