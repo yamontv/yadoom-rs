@@ -7,10 +7,6 @@
 //!     --info-c path/to/info.c \
 //!     --out-dir ./src/defs
 //! ```
-//!
-//! NOTE: This is intentionally *plain* Rust: no proc-macros or C parser.
-//! It uses a few regexes plus per-line splitting; adequate for the vanilla
-//! code layout and easy to tweak for Freedoom/ZDoom forks.
 
 use clap::Parser;
 use regex::Regex;
@@ -253,7 +249,7 @@ fn parse_mobj_chunk(text: &str) -> Option<MobjRow> {
 
 fn render_states(rows: &[StateRow]) -> String {
     let mut out = String::from(
-        "// AUTO-GENERATED – see tools/gen_mobjinfo\n\n\
+        "// AUTO-GENERATED - see tools/gen_mobjinfo\n\n\
 use crate::defs::state::State;\n\
 use crate::defs::action::Action;\n\n\
 #[derive(Debug, Copy, Clone)]\n\
@@ -289,7 +285,7 @@ pub const STATES: &[StateInfo] = &[\n",
 
 fn render_mobjinfo(rows: &[MobjRow]) -> String {
     let mut out = String::from(
-        "// AUTO-GENERATED – see tools/gen_mobjinfo\n\n\
+        "// AUTO-GENERATED - see tools/gen_mobjinfo\n\n\
 use crate::defs::flags::MobjFlags as MF;\n\
 use crate::defs::{state::State, sound::Sound};\n\n\
 #[derive(Debug, Clone)]\n\

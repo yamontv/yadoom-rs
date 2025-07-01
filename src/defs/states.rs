@@ -1,4 +1,4 @@
-// AUTO-GENERATED – see tools/gen_mobjinfo
+// AUTO-GENERATED - see tools/gen_mobjinfo
 
 use crate::defs::action::Action;
 use crate::defs::state::State;
