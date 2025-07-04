@@ -5,6 +5,7 @@ use crate::defs::{sound::Sound, state::State};
 
 #[derive(Debug, Clone)]
 pub struct MobjInfo {
+    pub id: &'static str,
     pub doomednum: i32,
     /* state chain */
     pub spawnstate: State,
@@ -35,6 +36,7 @@ pub struct MobjInfo {
 
 pub const MOBJINFO: &[MobjInfo] = &[
     MobjInfo {
+        id: "PLAYER",
         doomednum: -1,
         spawnstate: State::PLAY,
         spawnhealth: 100,
@@ -66,6 +68,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "POSSESSED",
         doomednum: 3004,
         spawnstate: State::POSS_STND,
         spawnhealth: 20,
@@ -93,6 +96,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::POSS_RAISE1,
     },
     MobjInfo {
+        id: "SHOTGUY",
         doomednum: 9,
         spawnstate: State::SPOS_STND,
         spawnhealth: 30,
@@ -120,6 +124,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::SPOS_RAISE1,
     },
     MobjInfo {
+        id: "VILE",
         doomednum: 64,
         spawnstate: State::VILE_STND,
         spawnhealth: 700,
@@ -147,6 +152,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "FIRE",
         doomednum: -1,
         spawnstate: State::FIRE1,
         spawnhealth: 1000,
@@ -172,6 +178,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "UNDEAD",
         doomednum: 66,
         spawnstate: State::SKEL_STND,
         spawnhealth: 300,
@@ -199,6 +206,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::SKEL_RAISE1,
     },
     MobjInfo {
+        id: "TRACER",
         doomednum: -1,
         spawnstate: State::TRACER,
         spawnhealth: 1000,
@@ -226,6 +234,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "SMOKE",
         doomednum: -1,
         spawnstate: State::SMOKE1,
         spawnhealth: 1000,
@@ -251,6 +260,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "FATSO",
         doomednum: 67,
         spawnstate: State::FATT_STND,
         spawnhealth: 600,
@@ -278,6 +288,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::FATT_RAISE1,
     },
     MobjInfo {
+        id: "FATSHOT",
         doomednum: -1,
         spawnstate: State::FATSHOT1,
         spawnhealth: 1000,
@@ -305,6 +316,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "CHAINGUY",
         doomednum: 65,
         spawnstate: State::CPOS_STND,
         spawnhealth: 70,
@@ -332,6 +344,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::CPOS_RAISE1,
     },
     MobjInfo {
+        id: "TROOP",
         doomednum: 3001,
         spawnstate: State::TROO_STND,
         spawnhealth: 60,
@@ -359,6 +372,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::TROO_RAISE1,
     },
     MobjInfo {
+        id: "SERGEANT",
         doomednum: 3002,
         spawnstate: State::SARG_STND,
         spawnhealth: 150,
@@ -386,6 +400,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::SARG_RAISE1,
     },
     MobjInfo {
+        id: "SHADOWS",
         doomednum: 58,
         spawnstate: State::SARG_STND,
         spawnhealth: 150,
@@ -413,6 +428,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::SARG_RAISE1,
     },
     MobjInfo {
+        id: "HEAD",
         doomednum: 3005,
         spawnstate: State::HEAD_STND,
         spawnhealth: 400,
@@ -444,6 +460,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::HEAD_RAISE1,
     },
     MobjInfo {
+        id: "BRUISER",
         doomednum: 3003,
         spawnstate: State::BOSS_STND,
         spawnhealth: 1000,
@@ -471,6 +488,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::BOSS_RAISE1,
     },
     MobjInfo {
+        id: "BRUISERSHOT",
         doomednum: -1,
         spawnstate: State::BRBALL1,
         spawnhealth: 1000,
@@ -498,6 +516,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "KNIGHT",
         doomednum: 69,
         spawnstate: State::BOS2_STND,
         spawnhealth: 500,
@@ -525,6 +544,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::BOS2_RAISE1,
     },
     MobjInfo {
+        id: "SKULL",
         doomednum: 3006,
         spawnstate: State::SKULL_STND,
         spawnhealth: 100,
@@ -552,6 +572,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "SPIDER",
         doomednum: 7,
         spawnstate: State::SPID_STND,
         spawnhealth: 3000,
@@ -579,6 +600,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "BABY",
         doomednum: 68,
         spawnstate: State::BSPI_STND,
         spawnhealth: 500,
@@ -606,6 +628,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::BSPI_RAISE1,
     },
     MobjInfo {
+        id: "CYBORG",
         doomednum: 16,
         spawnstate: State::CYBER_STND,
         spawnhealth: 4000,
@@ -633,6 +656,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "PAIN",
         doomednum: 71,
         spawnstate: State::PAIN_STND,
         spawnhealth: 400,
@@ -664,6 +688,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::PAIN_RAISE1,
     },
     MobjInfo {
+        id: "WOLFSS",
         doomednum: 84,
         spawnstate: State::SSWV_STND,
         spawnhealth: 50,
@@ -691,6 +716,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::SSWV_RAISE1,
     },
     MobjInfo {
+        id: "KEEN",
         doomednum: 72,
         spawnstate: State::KEENSTND,
         spawnhealth: 100,
@@ -722,6 +748,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "BOSSBRAIN",
         doomednum: 88,
         spawnstate: State::BRAIN,
         spawnhealth: 250,
@@ -747,6 +774,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "BOSSSPIT",
         doomednum: 89,
         spawnstate: State::BRAINEYE,
         spawnhealth: 1000,
@@ -772,6 +800,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "BOSSTARGET",
         doomednum: 87,
         spawnstate: State::NULL,
         spawnhealth: 1000,
@@ -797,6 +826,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "SPAWNSHOT",
         doomednum: -1,
         spawnstate: State::SPAWN1,
         spawnhealth: 1000,
@@ -828,6 +858,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "SPAWNFIRE",
         doomednum: -1,
         spawnstate: State::SPAWNFIRE1,
         spawnhealth: 1000,
@@ -853,6 +884,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "BARREL",
         doomednum: 2035,
         spawnstate: State::BAR1,
         spawnhealth: 20,
@@ -878,6 +910,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "TROOPSHOT",
         doomednum: -1,
         spawnstate: State::TBALL1,
         spawnhealth: 1000,
@@ -905,6 +938,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "HEADSHOT",
         doomednum: -1,
         spawnstate: State::RBALL1,
         spawnhealth: 1000,
@@ -932,6 +966,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "ROCKET",
         doomednum: -1,
         spawnstate: State::ROCKET,
         spawnhealth: 1000,
@@ -959,6 +994,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "PLASMA",
         doomednum: -1,
         spawnstate: State::PLASBALL,
         spawnhealth: 1000,
@@ -986,6 +1022,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "BFG",
         doomednum: -1,
         spawnstate: State::BFGSHOT,
         spawnhealth: 1000,
@@ -1013,6 +1050,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "ARACHPLAZ",
         doomednum: -1,
         spawnstate: State::ARACH_PLAZ,
         spawnhealth: 1000,
@@ -1040,6 +1078,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "PUFF",
         doomednum: -1,
         spawnstate: State::PUFF1,
         spawnhealth: 1000,
@@ -1065,6 +1104,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "BLOOD",
         doomednum: -1,
         spawnstate: State::BLOOD1,
         spawnhealth: 1000,
@@ -1090,6 +1130,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "TFOG",
         doomednum: -1,
         spawnstate: State::TFOG,
         spawnhealth: 1000,
@@ -1115,6 +1156,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "IFOG",
         doomednum: -1,
         spawnstate: State::IFOG,
         spawnhealth: 1000,
@@ -1140,6 +1182,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "TELEPORTMAN",
         doomednum: 14,
         spawnstate: State::NULL,
         spawnhealth: 1000,
@@ -1165,6 +1208,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "EXTRABFG",
         doomednum: -1,
         spawnstate: State::BFGEXP,
         spawnhealth: 1000,
@@ -1190,6 +1234,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC0",
         doomednum: 2018,
         spawnstate: State::ARM1,
         spawnhealth: 1000,
@@ -1215,6 +1260,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC1",
         doomednum: 2019,
         spawnstate: State::ARM2,
         spawnhealth: 1000,
@@ -1240,6 +1286,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC2",
         doomednum: 2014,
         spawnstate: State::BON1,
         spawnhealth: 1000,
@@ -1265,6 +1312,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC3",
         doomednum: 2015,
         spawnstate: State::BON2,
         spawnhealth: 1000,
@@ -1290,6 +1338,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC4",
         doomednum: 5,
         spawnstate: State::BKEY,
         spawnhealth: 1000,
@@ -1315,6 +1364,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC5",
         doomednum: 13,
         spawnstate: State::RKEY,
         spawnhealth: 1000,
@@ -1340,6 +1390,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC6",
         doomednum: 6,
         spawnstate: State::YKEY,
         spawnhealth: 1000,
@@ -1365,6 +1416,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC7",
         doomednum: 39,
         spawnstate: State::YSKULL,
         spawnhealth: 1000,
@@ -1390,6 +1442,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC8",
         doomednum: 38,
         spawnstate: State::RSKULL,
         spawnhealth: 1000,
@@ -1415,6 +1468,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC9",
         doomednum: 40,
         spawnstate: State::BSKULL,
         spawnhealth: 1000,
@@ -1440,6 +1494,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC10",
         doomednum: 2011,
         spawnstate: State::STIM,
         spawnhealth: 1000,
@@ -1465,6 +1520,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC11",
         doomednum: 2012,
         spawnstate: State::MEDI,
         spawnhealth: 1000,
@@ -1490,6 +1546,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC12",
         doomednum: 2013,
         spawnstate: State::SOUL,
         spawnhealth: 1000,
@@ -1515,6 +1572,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "INV",
         doomednum: 2022,
         spawnstate: State::PINV,
         spawnhealth: 1000,
@@ -1540,6 +1598,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC13",
         doomednum: 2023,
         spawnstate: State::PSTR,
         spawnhealth: 1000,
@@ -1565,6 +1624,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "INS",
         doomednum: 2024,
         spawnstate: State::PINS,
         spawnhealth: 1000,
@@ -1590,6 +1650,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC14",
         doomednum: 2025,
         spawnstate: State::SUIT,
         spawnhealth: 1000,
@@ -1615,6 +1676,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC15",
         doomednum: 2026,
         spawnstate: State::PMAP,
         spawnhealth: 1000,
@@ -1640,6 +1702,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC16",
         doomednum: 2045,
         spawnstate: State::PVIS,
         spawnhealth: 1000,
@@ -1665,6 +1728,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MEGA",
         doomednum: 83,
         spawnstate: State::MEGA,
         spawnhealth: 1000,
@@ -1690,6 +1754,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "CLIP",
         doomednum: 2007,
         spawnstate: State::CLIP,
         spawnhealth: 1000,
@@ -1715,6 +1780,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC17",
         doomednum: 2048,
         spawnstate: State::AMMO,
         spawnhealth: 1000,
@@ -1740,6 +1806,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC18",
         doomednum: 2010,
         spawnstate: State::ROCK,
         spawnhealth: 1000,
@@ -1765,6 +1832,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC19",
         doomednum: 2046,
         spawnstate: State::BROK,
         spawnhealth: 1000,
@@ -1790,6 +1858,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC20",
         doomednum: 2047,
         spawnstate: State::CELL,
         spawnhealth: 1000,
@@ -1815,6 +1884,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC21",
         doomednum: 17,
         spawnstate: State::CELP,
         spawnhealth: 1000,
@@ -1840,6 +1910,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC22",
         doomednum: 2008,
         spawnstate: State::SHEL,
         spawnhealth: 1000,
@@ -1865,6 +1936,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC23",
         doomednum: 2049,
         spawnstate: State::SBOX,
         spawnhealth: 1000,
@@ -1890,6 +1962,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC24",
         doomednum: 8,
         spawnstate: State::BPAK,
         spawnhealth: 1000,
@@ -1915,6 +1988,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC25",
         doomednum: 2006,
         spawnstate: State::BFUG,
         spawnhealth: 1000,
@@ -1940,6 +2014,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "CHAINGUN",
         doomednum: 2002,
         spawnstate: State::MGUN,
         spawnhealth: 1000,
@@ -1965,6 +2040,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC26",
         doomednum: 2005,
         spawnstate: State::CSAW,
         spawnhealth: 1000,
@@ -1990,6 +2066,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC27",
         doomednum: 2003,
         spawnstate: State::LAUN,
         spawnhealth: 1000,
@@ -2015,6 +2092,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC28",
         doomednum: 2004,
         spawnstate: State::PLAS,
         spawnhealth: 1000,
@@ -2040,6 +2118,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "SHOTGUN",
         doomednum: 2001,
         spawnstate: State::SHOT,
         spawnhealth: 1000,
@@ -2065,6 +2144,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "SUPERSHOTGUN",
         doomednum: 82,
         spawnstate: State::SHOT2,
         spawnhealth: 1000,
@@ -2090,6 +2170,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC29",
         doomednum: 85,
         spawnstate: State::TECHLAMP,
         spawnhealth: 1000,
@@ -2115,6 +2196,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC30",
         doomednum: 86,
         spawnstate: State::TECH2LAMP,
         spawnhealth: 1000,
@@ -2140,6 +2222,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC31",
         doomednum: 2028,
         spawnstate: State::COLU,
         spawnhealth: 1000,
@@ -2165,6 +2248,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC32",
         doomednum: 30,
         spawnstate: State::TALLGRNCOL,
         spawnhealth: 1000,
@@ -2190,6 +2274,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC33",
         doomednum: 31,
         spawnstate: State::SHRTGRNCOL,
         spawnhealth: 1000,
@@ -2215,6 +2300,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC34",
         doomednum: 32,
         spawnstate: State::TALLREDCOL,
         spawnhealth: 1000,
@@ -2240,6 +2326,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC35",
         doomednum: 33,
         spawnstate: State::SHRTREDCOL,
         spawnhealth: 1000,
@@ -2265,6 +2352,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC36",
         doomednum: 37,
         spawnstate: State::SKULLCOL,
         spawnhealth: 1000,
@@ -2290,6 +2378,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC37",
         doomednum: 36,
         spawnstate: State::HEARTCOL,
         spawnhealth: 1000,
@@ -2315,6 +2404,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC38",
         doomednum: 41,
         spawnstate: State::EVILEYE,
         spawnhealth: 1000,
@@ -2340,6 +2430,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC39",
         doomednum: 42,
         spawnstate: State::FLOATSKULL,
         spawnhealth: 1000,
@@ -2365,6 +2456,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC40",
         doomednum: 43,
         spawnstate: State::TORCHTREE,
         spawnhealth: 1000,
@@ -2390,6 +2482,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC41",
         doomednum: 44,
         spawnstate: State::BLUETORCH,
         spawnhealth: 1000,
@@ -2415,6 +2508,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC42",
         doomednum: 45,
         spawnstate: State::GREENTORCH,
         spawnhealth: 1000,
@@ -2440,6 +2534,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC43",
         doomednum: 46,
         spawnstate: State::REDTORCH,
         spawnhealth: 1000,
@@ -2465,6 +2560,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC44",
         doomednum: 55,
         spawnstate: State::BTORCHSHRT,
         spawnhealth: 1000,
@@ -2490,6 +2586,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC45",
         doomednum: 56,
         spawnstate: State::GTORCHSHRT,
         spawnhealth: 1000,
@@ -2515,6 +2612,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC46",
         doomednum: 57,
         spawnstate: State::RTORCHSHRT,
         spawnhealth: 1000,
@@ -2540,6 +2638,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC47",
         doomednum: 47,
         spawnstate: State::STALAGTITE,
         spawnhealth: 1000,
@@ -2565,6 +2664,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC48",
         doomednum: 48,
         spawnstate: State::TECHPILLAR,
         spawnhealth: 1000,
@@ -2590,6 +2690,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC49",
         doomednum: 34,
         spawnstate: State::CANDLESTIK,
         spawnhealth: 1000,
@@ -2615,6 +2716,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC50",
         doomednum: 35,
         spawnstate: State::CANDELABRA,
         spawnhealth: 1000,
@@ -2640,6 +2742,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC51",
         doomednum: 49,
         spawnstate: State::BLOODYTWITCH,
         spawnhealth: 1000,
@@ -2667,6 +2770,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC52",
         doomednum: 50,
         spawnstate: State::MEAT2,
         spawnhealth: 1000,
@@ -2694,6 +2798,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC53",
         doomednum: 51,
         spawnstate: State::MEAT3,
         spawnhealth: 1000,
@@ -2721,6 +2826,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC54",
         doomednum: 52,
         spawnstate: State::MEAT4,
         spawnhealth: 1000,
@@ -2748,6 +2854,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC55",
         doomednum: 53,
         spawnstate: State::MEAT5,
         spawnhealth: 1000,
@@ -2775,6 +2882,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC56",
         doomednum: 59,
         spawnstate: State::MEAT2,
         spawnhealth: 1000,
@@ -2800,6 +2908,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC57",
         doomednum: 60,
         spawnstate: State::MEAT4,
         spawnhealth: 1000,
@@ -2825,6 +2934,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC58",
         doomednum: 61,
         spawnstate: State::MEAT3,
         spawnhealth: 1000,
@@ -2850,6 +2960,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC59",
         doomednum: 62,
         spawnstate: State::MEAT5,
         spawnhealth: 1000,
@@ -2875,6 +2986,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC60",
         doomednum: 63,
         spawnstate: State::BLOODYTWITCH,
         spawnhealth: 1000,
@@ -2900,6 +3012,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC61",
         doomednum: 22,
         spawnstate: State::HEAD_DIE6,
         spawnhealth: 1000,
@@ -2925,6 +3038,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC62",
         doomednum: 15,
         spawnstate: State::PLAY_DIE7,
         spawnhealth: 1000,
@@ -2950,6 +3064,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC63",
         doomednum: 18,
         spawnstate: State::POSS_DIE5,
         spawnhealth: 1000,
@@ -2975,6 +3090,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC64",
         doomednum: 21,
         spawnstate: State::SARG_DIE6,
         spawnhealth: 1000,
@@ -3000,6 +3116,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC65",
         doomednum: 23,
         spawnstate: State::SKULL_DIE6,
         spawnhealth: 1000,
@@ -3025,6 +3142,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC66",
         doomednum: 20,
         spawnstate: State::TROO_DIE5,
         spawnhealth: 1000,
@@ -3050,6 +3168,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC67",
         doomednum: 19,
         spawnstate: State::SPOS_DIE5,
         spawnhealth: 1000,
@@ -3075,6 +3194,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC68",
         doomednum: 10,
         spawnstate: State::PLAY_XDIE9,
         spawnhealth: 1000,
@@ -3100,6 +3220,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC69",
         doomednum: 12,
         spawnstate: State::PLAY_XDIE9,
         spawnhealth: 1000,
@@ -3125,6 +3246,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC70",
         doomednum: 28,
         spawnstate: State::HEADSONSTICK,
         spawnhealth: 1000,
@@ -3150,6 +3272,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC71",
         doomednum: 24,
         spawnstate: State::GIBS,
         spawnhealth: 1000,
@@ -3175,6 +3298,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC72",
         doomednum: 27,
         spawnstate: State::HEADONASTICK,
         spawnhealth: 1000,
@@ -3200,6 +3324,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC73",
         doomednum: 29,
         spawnstate: State::HEADCANDLES,
         spawnhealth: 1000,
@@ -3225,6 +3350,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC74",
         doomednum: 25,
         spawnstate: State::DEADSTICK,
         spawnhealth: 1000,
@@ -3250,6 +3376,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC75",
         doomednum: 26,
         spawnstate: State::LIVESTICK,
         spawnhealth: 1000,
@@ -3275,6 +3402,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC76",
         doomednum: 54,
         spawnstate: State::BIGTREE,
         spawnhealth: 1000,
@@ -3300,6 +3428,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC77",
         doomednum: 70,
         spawnstate: State::BBAR1,
         spawnhealth: 1000,
@@ -3325,6 +3454,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC78",
         doomednum: 73,
         spawnstate: State::HANGNOGUTS,
         spawnhealth: 1000,
@@ -3352,6 +3482,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC79",
         doomednum: 74,
         spawnstate: State::HANGBNOBRAIN,
         spawnhealth: 1000,
@@ -3379,6 +3510,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC80",
         doomednum: 75,
         spawnstate: State::HANGTLOOKDN,
         spawnhealth: 1000,
@@ -3406,6 +3538,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC81",
         doomednum: 76,
         spawnstate: State::HANGTSKULL,
         spawnhealth: 1000,
@@ -3433,6 +3566,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC82",
         doomednum: 77,
         spawnstate: State::HANGTLOOKUP,
         spawnhealth: 1000,
@@ -3460,6 +3594,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC83",
         doomednum: 78,
         spawnstate: State::HANGTNOBRAIN,
         spawnhealth: 1000,
@@ -3487,6 +3622,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC84",
         doomednum: 79,
         spawnstate: State::COLONGIBS,
         spawnhealth: 1000,
@@ -3512,6 +3648,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC85",
         doomednum: 80,
         spawnstate: State::SMALLPOOL,
         spawnhealth: 1000,
@@ -3537,6 +3674,7 @@ pub const MOBJINFO: &[MobjInfo] = &[
         raisestate: State::NULL,
     },
     MobjInfo {
+        id: "MISC86",
         doomednum: 81,
         spawnstate: State::BRAINSTEM,
         spawnhealth: 1000,

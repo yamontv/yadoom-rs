@@ -42,6 +42,7 @@ struct StateRow {
 /// Minimal representation of an mobjinfo_t row.
 #[derive(Debug, Clone)]
 struct MobjRow {
+    id: String,
     doomednum: i32,
     spawnstate: String,
     spawnhealth: i32,
@@ -199,6 +200,15 @@ fn parse_state_line(line: &str) -> Option<StateRow> {
 
 /// Convert a single mobjinfo initializer (comments already inside) into a row.
 fn parse_mobj_chunk(text: &str) -> Option<MobjRow> {
+    // 0) capture the leading “// MT_FOO” tag (if any)
+    let id = text
+        .lines()
+        .next()
+        .and_then(|l| l.split("//").nth(1).map(|c| c.trim()))
+        .unwrap_or("")
+        .trim_start_matches("MT_")
+        .to_string();
+
     // strip per-line “// …” comments
     let cleaned = text
         .lines()
@@ -217,6 +227,7 @@ fn parse_mobj_chunk(text: &str) -> Option<MobjRow> {
     }
 
     Some(MobjRow {
+        id,
         doomednum: f[0].parse().unwrap_or(-1),
         spawnstate: f[1].trim_start_matches("S_").to_string(),
         spawnhealth: f[2].parse().unwrap_or(0),
@@ -290,6 +301,7 @@ use crate::defs::flags::MobjFlags as MF;\n\
 use crate::defs::{state::State, sound::Sound};\n\n\
 #[derive(Debug, Clone)]\n\
 pub struct MobjInfo {\n\
+    pub id: &'static str,\n\
     pub doomednum:    i32,\n\
     /* state chain */\n\
     pub spawnstate:   State,\n\
@@ -319,6 +331,8 @@ pub struct MobjInfo {\n\
 }\n\n\
 pub const MOBJINFO: &[MobjInfo] = &[\n",
     );
+
+    let quote = |s: &str| format!("\"{}\"", s);
 
     let fmt_state = |raw: &str| {
         if raw == "0" {
@@ -354,6 +368,7 @@ pub const MOBJINFO: &[MobjInfo] = &[\n",
     for m in rows.iter() {
         out.push_str(&format!(
             "MobjInfo {{ \
+id: {id}, \
 doomednum: {dn}, \
 spawnstate: {ss}, \
 spawnhealth: {sh}, \
@@ -377,6 +392,7 @@ damage: {dmg}, \
 activesound: {acts}, \
 flags: {flg}, \
 raisestate: {rs} }},\n",
+            id = quote(&m.id),
             dn = m.doomednum,
             ss = fmt_state(&m.spawnstate),
             sh = m.spawnhealth,
