@@ -974,3 +974,14 @@ pub enum State {
 }
 
 pub const COUNT: usize = State::TECH2LAMP4 as usize + 1;
+
+impl State {
+    #[inline(always)]
+    pub fn tics(self) -> i32 {
+        super::states::STATES[self as usize].tics
+    }
+    #[inline(always)]
+    pub fn next(self) -> State {
+        super::states::STATES[self as usize].next_state
+    }
+}

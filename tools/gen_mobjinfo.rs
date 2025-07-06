@@ -455,10 +455,23 @@ pub enum State {\n",
             last.name.clone()
         };
         out.push_str(&format!(
-            "pub const COUNT: usize = State::{} as usize + 1;\n",
+            "pub const COUNT: usize = State::{} as usize + 1;\n\n",
             last_name
         ));
     }
+
+    out.push_str(
+        "impl State {\n\
+#[inline(always)]\n\
+pub fn tics(self) -> i32 {\n\
+super::states::STATES[self as usize].tics\n\
+}\n\
+#[inline(always)]\n\
+pub fn next(self) -> State {\n\
+super::states::STATES[self as usize].next_state\n\
+}\n\
+}\n",
+    );
 
     out
 }
