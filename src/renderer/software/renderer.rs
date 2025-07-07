@@ -81,14 +81,14 @@ impl Renderer for Software {
         texture_bank: &mut TextureBank,
     ) {
         // win.update_with_buffer(&self.scratch, self.width, self.height);
-        if subsectors.len() == 0 {
+        if subsectors.is_empty() {
             return;
         }
 
         self.focal = camera.screen_scale(self.width);
 
         let sec0_idx = level.subsectors[subsectors[0] as usize].sector;
-        let floor_z = level.sectors[sec0_idx as usize].floor_h as f32;
+        let floor_z = level.sectors[sec0_idx as usize].floor_h;
         self.view_z = camera.pos.z + floor_z;
 
         for ss_idx in subsectors.iter().copied() {

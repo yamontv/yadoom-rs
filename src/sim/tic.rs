@@ -12,6 +12,12 @@ pub struct TicRunner {
     last: Instant,
 }
 
+impl Default for TicRunner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TicRunner {
     pub fn new() -> Self {
         Self {

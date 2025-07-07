@@ -116,10 +116,8 @@ impl PlaneMap {
         let lo = intrl as usize;
         let hi = intrh as usize;
 
-        if lo <= hi {
-            if plane.top[lo..=hi].iter().any(|&v| v != u16::MAX) {
-                return false; // part of the span already drawn
-            }
+        if lo <= hi && plane.top[lo..=hi].iter().any(|&v| v != u16::MAX) {
+            return false; // part of the span already drawn
         }
 
         plane.min_x = unionl;

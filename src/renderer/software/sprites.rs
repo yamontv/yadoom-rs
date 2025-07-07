@@ -124,7 +124,7 @@ impl Software {
             silhouette: Silhouette::NONE,
             bsil_height: f32::MIN,
             tsil_height: f32::MAX,
-            masked_mid: masked_mid,
+            masked_mid,
             masked_mid_w,
             z_top,
             z_bot,
@@ -405,8 +405,8 @@ impl Software {
             let u = *entry as usize; // 0 … tex_mid.w-1
 
             // ------- project vertical extents --------------------------------
-            let y_top = (self.half_h as f32 - (ds.z_top - self.view_z) * scale).floor() as i32;
-            let y_bot = (self.half_h as f32 - (ds.z_bot - self.view_z) * scale).ceil() as i32;
+            let y_top = (self.half_h - (ds.z_top - self.view_z) * scale).floor() as i32;
+            let y_bot = (self.half_h - (ds.z_bot - self.view_z) * scale).ceil() as i32;
 
             let mut y0 = y_top.max(0);
             let mut y1 = y_bot.min(self.height as i32 - 1);

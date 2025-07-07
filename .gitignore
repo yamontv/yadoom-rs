@@ -1,4 +1,5 @@
 /target
+/assets
 *.wad
 *.lock
 .vscode

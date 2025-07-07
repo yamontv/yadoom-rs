@@ -84,10 +84,7 @@ fn main() -> anyhow::Result<()> {
         .expect("mobjinfo[] not found in info.c");
 
     // 3. Parse rows.
-    let state_rows: Vec<StateRow> = states_body
-        .lines()
-        .filter_map(|l| parse_state_line(l))
-        .collect();
+    let state_rows: Vec<StateRow> = states_body.lines().filter_map(parse_state_line).collect();
 
     let action_names: Vec<String> = {
         let mut set = BTreeSet::new();

@@ -34,8 +34,8 @@ fn main() -> anyhow::Result<()> {
             let z = floor_z;
             sim.spawn_mobj(
                 info,
-                thing.pos.x as f32,
-                thing.pos.y as f32,
+                thing.pos.x,
+                thing.pos.y,
                 z,
                 thing.angle,
                 thing.sub_sector,

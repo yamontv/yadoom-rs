@@ -21,7 +21,7 @@ impl Software {
         let v2 = &level.vertices[seg.v2 as usize].pos;
 
         // Back‑face cull
-        if Self::back_facing_seg(&v1, &v2, camera) {
+        if Self::back_facing_seg(v1, v2, camera) {
             return None;
         }
 
