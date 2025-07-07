@@ -1,4 +1,3 @@
-//
 use super::{Angle, Anim, Class, Pos, Subsector, Vel};
 use crate::defs::MobjInfo;
 use glam::{Vec2, Vec3};

@@ -1,5 +1,3 @@
-//system.rs
-
 use crate::defs::MobjInfo;
 use crate::world::geometry::Level;
 use hecs::World;

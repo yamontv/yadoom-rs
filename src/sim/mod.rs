@@ -1,4 +1,3 @@
-// mod.rs
 mod mob;
 mod systems;
 mod tic;

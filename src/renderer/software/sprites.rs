@@ -1,7 +1,10 @@
 use std::ops::Range;
 
 use crate::{
+    defs::flags::MobjFlags as MF,
     renderer::software::{Software, projection::Edge},
+    sim,
+    sim::TicRunner,
     world::{
         camera::Camera,
         geometry::{Level, SegmentId, SubsectorId},
@@ -87,23 +90,7 @@ pub struct VisSprite {
     pub gy: f32,   // world Y
     pub tex: TextureId,
     pub u_step: f32, // how far to advance U per screen pixel X
-}
-
-/// very small subset just to get moving
-const THING_SPRITE: &[(u16, &str)] = &[
-    (1, "PLAYA1"),    // player 1 start
-    (2014, "BON1A0"), // BON
-    (3001, "TROOA0"), // imp (front-facing, no rotation)
-    (3004, "POSSA0"), // zombieman
-    (2004, "CLIPA0"), // clip pickup
-];
-
-fn sprite_for(type_id: u16, tex_bank: &TextureBank) -> TextureId {
-    THING_SPRITE
-        .iter()
-        .find(|(id, _)| *id == type_id)
-        .and_then(|(_, lump)| tex_bank.id(*lump))
-        .unwrap_or(NO_TEXTURE)
+    pub flip: bool,
 }
 
 impl Software {
@@ -169,29 +156,52 @@ impl Software {
     pub fn collect_sprites_for_subsector(
         &mut self,
         ss_idx: SubsectorId,
-        level: &Level,
+        sim: &TicRunner,
         camera: &Camera,
-        tex_bank: &TextureBank,
+        tex_bank: &mut TextureBank,
     ) {
         let mut out: Vec<VisSprite> = Vec::new();
         let focal = camera.screen_scale(self.width);
         let half_w = self.half_w;
         let half_h = self.half_h;
 
-        let sec_idx = level.subsectors[ss_idx as usize].sector;
-        let floor_z = level.sectors[sec_idx as usize].floor_h as f32;
+        for (_, (pos, anim, angle, class, ssec)) in sim
+            .world()
+            .query::<(
+                &sim::Pos,
+                &sim::Anim,
+                &sim::Angle,
+                &sim::Class,
+                &sim::Subsector,
+            )>()
+            .iter()
+        {
+            // Keep only those in the requested BSP leaf
+            if ssec.0 != ss_idx {
+                continue;
+            }
 
-        for thing_idx in level.subsectors[ss_idx as usize].things.iter() {
-            let thing = &level.things[*thing_idx as usize];
+            let frame = (b'A' + anim.state.frame()) as char;
 
-            let tex_id = sprite_for(thing.type_id, tex_bank);
+            let dx = camera.pos.x - pos.0.x;
+            let dy = camera.pos.y - pos.0.y;
+            let dir_to_view = dy.atan2(dx); // world angle sprite→camera
+            let rel_angle = (dir_to_view - angle.0).to_degrees().rem_euclid(360.0);
+
+            let rot = if class.0.flags.contains(MF::NOBLOOD) {
+                0u8 // billboard
+            } else {
+                (((rel_angle + 22.5) / 45.0) as u8 & 7) + 1 // 1‥8
+            };
+
+            let (tex_id, flip) = tex_bank.sprite_id(anim.state.sprite(), frame, rot);
 
             if tex_id == NO_TEXTURE {
                 continue;
             }
 
             // camera space -------------------------------------------------
-            let rel = camera.to_cam(&thing.pos); // z=0 floor aligned
+            let rel = camera.to_cam(&pos.0); // z=0 floor aligned
             if rel.y <= 4.0 {
                 // “behind” or too close to near-plane
                 continue;
@@ -212,7 +222,7 @@ impl Software {
             }
 
             // vertical offset between sprite base (sector floor) and the eye
-            let rel_z = floor_z - self.view_z;
+            let rel_z = pos.1 - self.view_z;
 
             let y_bottom = half_h - rel_z * scale;
 
@@ -225,21 +235,28 @@ impl Software {
                 y0,
                 y1,
                 invz,
-                gx: thing.pos.x,
-                gy: thing.pos.y,
+                gx: pos.0.x,
+                gy: pos.0.y,
                 tex: tex_id,
                 u_step: tex.w as f32 / (x1 - x0 + 1) as f32,
+                flip,
             });
         }
 
         // far-to-near painter’s algorithm so we overdraw correctly
-        out.sort_by(|a, b| b.invz.partial_cmp(&a.invz).unwrap());
+        // out.sort_by(|a, b| a.invz.partial_cmp(&b.invz).unwrap());
         self.sprites.append(&mut out);
     }
 
     pub fn draw_sprites(&mut self, level: &Level, tex: &TextureBank) {
         let focal = self.focal;
         let h_scr = self.height as i32;
+
+        self.sprites.sort_unstable_by(|a, b| {
+            a.invz
+                .partial_cmp(&b.invz) // smaller invz == farther
+                .unwrap()
+        });
 
         for i in 0..self.sprites.len() {
             let vis = self.sprites[i]; // copy: no borrow lives
@@ -249,13 +266,20 @@ impl Software {
             let mut x = vis.x0.max(0);
             let x_end = vis.x1.min(self.width as i32 - 1);
             let x_clip_left = x - vis.x0; // how many columns we skipped
-            let mut u_acc = x_clip_left as f32 * vis.u_step;
+
+            let mut u_step = vis.u_step;
+            let mut u_acc = x_clip_left as f32 * u_step;
+
+            if vis.flip {
+                u_step = -u_step; // march leftward
+                u_acc = (tex_spr.w as f32 - 1.0) - u_acc;
+            }
 
             while x <= x_end {
                 let (ceil, floor) = self.column_clips(level, spr_scale, &vis, x, tex);
 
                 if ceil >= floor {
-                    u_acc += vis.u_step;
+                    u_acc += u_step;
                     x += 1;
                     continue;
                 }
@@ -281,7 +305,7 @@ impl Software {
                     v_acc += v_step;
                 }
 
-                u_acc += vis.u_step;
+                u_acc += u_step;
                 x += 1;
             }
         }

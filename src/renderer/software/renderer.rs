@@ -4,11 +4,11 @@ use crate::{
         sprites::{DrawSeg, FrameScratch, VisSprite},
     },
     renderer::{Renderer, Rgba},
+    sim::TicRunner,
     world::camera::Camera,
     world::geometry::{Level, SubsectorId},
     world::texture::TextureBank,
 };
-use minifb::Window;
 
 #[derive(Default)]
 pub struct ClipBands {
@@ -72,13 +72,13 @@ impl Renderer for Software {
         self.frame_scratch.reset();
     }
 
-    fn draw_subsectors(
+    fn draw_level(
         &mut self,
         subsectors: &[SubsectorId],
         level: &Level,
+        sim: &TicRunner,
         camera: &Camera,
-        texture_bank: &TextureBank,
-        win: &mut Window,
+        texture_bank: &mut TextureBank,
     ) {
         // win.update_with_buffer(&self.scratch, self.width, self.height);
         if subsectors.len() == 0 {
@@ -96,17 +96,11 @@ impl Renderer for Software {
             let start = ss.first_line;
             let end = start + ss.num_lines;
 
-            self.collect_sprites_for_subsector(ss_idx, level, camera, texture_bank);
+            self.collect_sprites_for_subsector(ss_idx, sim, camera, texture_bank);
 
             for seg_idx in start..end {
                 if let Some(edge) = self.project_seg(seg_idx, level, camera) {
-                    // self.draw_line(edge.x_l, 0, edge.x_l, self.height as i32 - 1, 0x00FF0000);
-                    // self.draw_line(edge.x_r, 0, edge.x_r, self.height as i32 - 1, 0x00FF0000);
                     self.draw_edge(edge, seg_idx, level, texture_bank);
-
-                    // self.flush_planes(camera, texture_bank);
-                    // win.update_with_buffer(&self.scratch, self.width, self.height);
-                    // self.visplane_map.clear(self.width);
                 }
             }
         }

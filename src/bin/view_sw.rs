@@ -2,6 +2,7 @@ use minifb::{Key, Window, WindowOptions};
 use std::time::{Duration, Instant};
 use yadoom_rs::{
     renderer::{Renderer, software::Software},
+    sim::TicRunner,
     wad::{loader, raw::Wad},
     world::{camera::Camera, geometry::SubsectorId, texture::TextureBank},
 };
@@ -21,6 +22,26 @@ fn main() -> anyhow::Result<()> {
     let mut texture_bank = TextureBank::default_with_checker();
     let mut level = loader::load_level(&wad, wad.level_indices()[map_idx], &mut texture_bank)?;
     level.finalise_bsp();
+
+    let mut sim = TicRunner::new();
+
+    for thing in &level.things {
+        if let Some(info) = yadoom_rs::defs::by_doomednum(thing.type_id) {
+            let sec_idx = level.subsectors[thing.sub_sector as usize].sector;
+            let floor_z = level.sectors[sec_idx as usize].floor_h as f32;
+
+            // TODO: write clamp/flag logic
+            let z = floor_z;
+            sim.spawn_mobj(
+                info,
+                thing.pos.x as f32,
+                thing.pos.y as f32,
+                z,
+                thing.angle,
+                thing.sub_sector,
+            );
+        }
+    }
 
     println!("Doom level: {}", level.name);
 
@@ -73,10 +94,12 @@ fn main() -> anyhow::Result<()> {
 
         // dbg!(camera);
 
+        sim.pump(&level);
+
         /* draw */
         renderer.begin_frame(W, H);
         level.fill_active_subsectors(&camera, &mut active_subsectors);
-        renderer.draw_subsectors(&active_subsectors, &level, &camera, &texture_bank, &mut win);
+        renderer.draw_level(&active_subsectors, &level, &sim, &camera, &mut texture_bank);
         renderer.end_frame(|fb, w, h| {
             // ─────────── accumulate & report every ~3 s ────────────────────
             acc_time += t0.elapsed();

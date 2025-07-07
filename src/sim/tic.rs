@@ -1,7 +1,5 @@
-// tic.rs
 use super::{mob, systems};
 use crate::world::geometry::Level;
-use hecs::QueryBorrow;
 use hecs::World;
 use std::time::{Duration, Instant};
 
@@ -20,6 +18,11 @@ impl TicRunner {
             world: World::new(),
             last: Instant::now(),
         }
+    }
+
+    #[inline]
+    pub fn world(&self) -> &hecs::World {
+        &self.world
     }
 
     /// Spawn a monster/item entity and return its `Entity` handle.
@@ -42,14 +45,6 @@ impl TicRunner {
             self.tick(level);
             self.last += TIC;
         }
-    }
-
-    /* ---------------------------------------------------------------- */
-    /* accessors for the renderer                                        */
-    /* ---------------------------------------------------------------- */
-    #[inline]
-    pub fn mobjs(&self) -> QueryBorrow<(&systems::Pos, &systems::Anim)> {
-        self.world.query::<(&systems::Pos, &systems::Anim)>() // caller can `.iter()` or `.into_iter()`
     }
 
     /* ---------------------------------------------------------------- */

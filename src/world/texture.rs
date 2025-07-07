@@ -2,6 +2,7 @@
 // The renderer and world logic interact through `TextureId` only.
 
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 
 use std::ops::{Index, IndexMut};
 
@@ -96,6 +97,35 @@ impl IndexMut<usize> for Colormap {
     }
 }
 
+/// (sprite code, frame letter, rotation digit) → TextureId
+#[derive(Clone, Copy)]
+struct SpriteKey {
+    code: &'static str, // "POSS"
+    frame: char,        // 'A'..'Z'
+    rot: u8,            // 0 | 1-8
+}
+
+impl PartialEq for SpriteKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.code == other.code && self.frame == other.frame && self.rot == other.rot
+    }
+}
+impl Eq for SpriteKey {}
+impl Hash for SpriteKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(self.code.as_bytes());
+        state.write_u8(self.frame as u8);
+        state.write_u8(self.rot);
+    }
+}
+
+/// Cached result: id == NO_TEXTURE means “definitely missing”.
+#[derive(Clone, Copy)]
+struct SpriteVal {
+    id: TextureId,
+    flip: bool,
+}
+
 /// A palette-agnostic, format-agnostic cache of textures.
 ///
 /// * Does **not** know about WADs, PNG, OpenGL — that’s the loader’s job.
@@ -111,6 +141,7 @@ pub struct TextureBank {
     colormap: Colormap,
     /// Pre-computed [ shade<<8 | color ] → ARGB.
     shade_table: Vec<u32>,
+    sprite_cache: HashMap<SpriteKey, SpriteVal>,
 }
 
 impl TextureBank {
@@ -130,6 +161,7 @@ impl TextureBank {
             palette: Palette::default(),
             colormap: Colormap::default(),
             shade_table: Vec::new(),
+            sprite_cache: HashMap::new(),
         }
     }
 
@@ -226,6 +258,57 @@ impl TextureBank {
     #[inline(always)]
     pub fn get_color(&self, shade_idx: u8, texel: u8) -> u32 {
         self.shade_table[(shade_idx as usize) << 8 | (texel as usize)]
+    }
+
+    /// Resolve (`code`, `frame`, `rot`) exactly once, cache forever.
+    /// Returns `(TextureId, flip)`.  `id == NO_TEXTURE` means “not present”.
+    pub fn sprite_id(
+        &mut self,
+        code: &'static str, // MUST be 4 ascii bytes
+        frame: char,        // 'A'..'Z'
+        rot: u8,            // 0 or 1-8
+    ) -> (TextureId, bool) {
+        let key = SpriteKey { code, frame, rot };
+
+        // 1. hot-path
+        if let Some(val) = self.sprite_cache.get(&key) {
+            return (val.id, val.flip);
+        }
+
+        // helper | write result once then break
+        let push = |id: TextureId, flip: bool, cache: &mut HashMap<_, _>| {
+            cache.insert(key, SpriteVal { id, flip });
+            (id, flip)
+        };
+
+        // 2. exact the basic 6-char lump   "POSS A 3" → "POSSA3"
+        let lump6 = format!("{code}{frame}{rot}");
+        if let Some(id) = self.id(&lump6) {
+            return push(id, false, &mut self.sprite_cache);
+        }
+
+        // 3. paired 8-byte (only if rot > 0)
+        if rot != 0 {
+            let alt = 10 - rot;
+            let fw = format!("{code}{frame}{rot}{frame}{alt}");
+            if let Some(id) = self.id(&fw) {
+                return push(id, false, &mut self.sprite_cache);
+            }
+            let rev = format!("{code}{frame}{alt}{frame}{rot}");
+            if let Some(id) = self.id(&rev) {
+                // reversed pair ⇒ mirror on draw
+                return push(id, true, &mut self.sprite_cache);
+            }
+        }
+
+        // 4. billboard "A0"
+        let lump0 = format!("{code}{frame}0");
+        if let Some(id) = self.id(&lump0) {
+            return push(id, false, &mut self.sprite_cache);
+        }
+
+        // 5. miss
+        push(NO_TEXTURE, false, &mut self.sprite_cache)
     }
 }
 

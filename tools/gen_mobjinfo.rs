@@ -445,30 +445,30 @@ pub enum State {\n",
         };
         out.push_str(&format!("    {} = {},\n", name, i));
     }
-    out.push_str("}\n\n");
 
-    // convenience constant
-    if let Some(last) = rows.last() {
-        let last_name = if last.name.is_empty() {
-            format!("S_IDX{:03}", rows.len() - 1)
-        } else {
-            last.name.clone()
-        };
-        out.push_str(&format!(
-            "pub const COUNT: usize = State::{} as usize + 1;\n\n",
-            last_name
-        ));
-    }
+    out.push_str("}\n\n");
 
     out.push_str(
         "impl State {\n\
 #[inline(always)]\n\
+pub fn info(self) -> &'static super::states::StateInfo {\n\
+    &super::states::STATES[self as usize]\n\
+}\n\
+#[inline(always)]\n\
 pub fn tics(self) -> i32 {\n\
-super::states::STATES[self as usize].tics\n\
+    self.info().tics\n\
 }\n\
 #[inline(always)]\n\
 pub fn next(self) -> State {\n\
-super::states::STATES[self as usize].next_state\n\
+    self.info().next_state\n\
+}\n\
+#[inline(always)]\n\
+pub fn sprite(self) -> &'static str {\n\
+    self.info().sprite\n\
+}\n\
+#[inline(always)]\n\
+pub fn frame(self) -> u8 {\n\
+    self.info().frame\n\
 }\n\
 }\n",
     );

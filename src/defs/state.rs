@@ -973,15 +973,25 @@ pub enum State {
     TECH2LAMP4 = 966,
 }
 
-pub const COUNT: usize = State::TECH2LAMP4 as usize + 1;
-
 impl State {
     #[inline(always)]
+    pub fn info(self) -> &'static super::states::StateInfo {
+        &super::states::STATES[self as usize]
+    }
+    #[inline(always)]
     pub fn tics(self) -> i32 {
-        super::states::STATES[self as usize].tics
+        self.info().tics
     }
     #[inline(always)]
     pub fn next(self) -> State {
-        super::states::STATES[self as usize].next_state
+        self.info().next_state
+    }
+    #[inline(always)]
+    pub fn sprite(self) -> &'static str {
+        self.info().sprite
+    }
+    #[inline(always)]
+    pub fn frame(self) -> u8 {
+        self.info().frame
     }
 }
