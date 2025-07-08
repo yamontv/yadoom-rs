@@ -160,7 +160,6 @@ impl Software {
         camera: &Camera,
         tex_bank: &TextureBank,
     ) {
-        let mut out: Vec<VisSprite> = Vec::new();
         let focal = camera.screen_scale(self.width);
         let half_w = self.half_w;
         let half_h = self.half_h;
@@ -229,7 +228,7 @@ impl Software {
             let y0 = (y_bottom - sprite_h).floor() as i32; // top
             let y1 = (y_bottom).ceil() as i32; // bottom (touching floor)
 
-            out.push(VisSprite {
+            self.sprites.push(VisSprite {
                 x0,
                 x1,
                 y0,
@@ -242,10 +241,6 @@ impl Software {
                 flip,
             });
         }
-
-        // far-to-near painter’s algorithm so we overdraw correctly
-        // out.sort_by(|a, b| a.invz.partial_cmp(&b.invz).unwrap());
-        self.sprites.append(&mut out);
     }
 
     pub fn draw_sprites(&mut self, level: &Level, tex: &TextureBank) {

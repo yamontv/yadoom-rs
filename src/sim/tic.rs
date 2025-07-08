@@ -35,14 +35,14 @@ impl TicRunner {
     #[inline]
     pub fn spawn_mobj(
         &mut self,
+        level: &Level,
         info: &'static crate::defs::MobjInfo,
         x: f32,
         y: f32,
-        z: f32,
         angle: f32,
         subsector: u16,
     ) -> hecs::Entity {
-        mob::spawn_mobj(&mut self.world, info, x, y, z, angle, subsector)
+        mob::spawn_mobj(&mut self.world, level, info, x, y, angle, subsector)
     }
 
     /// Advance enough tics to synchronise simulation with real time.

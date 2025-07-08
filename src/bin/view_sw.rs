@@ -27,16 +27,11 @@ fn main() -> anyhow::Result<()> {
 
     for thing in &level.things {
         if let Some(info) = yadoom_rs::defs::by_doomednum(thing.type_id) {
-            let sec_idx = level.subsectors[thing.sub_sector as usize].sector;
-            let floor_z = level.sectors[sec_idx as usize].floor_h as f32;
-
-            // TODO: write clamp/flag logic
-            let z = floor_z;
             sim.spawn_mobj(
+                &level,
                 info,
                 thing.pos.x,
                 thing.pos.y,
-                z,
                 thing.angle,
                 thing.sub_sector,
             );
@@ -56,7 +51,7 @@ fn main() -> anyhow::Result<()> {
     let mut renderer = Software::default();
 
     let mut win = Window::new("Rust Doom Software Render", W, H, WindowOptions::default())?;
-    win.set_target_fps(35);
+    win.set_target_fps(70);
 
     // ────────────────── benchmarking state ──────────────────────────────
     let mut acc_time = Duration::ZERO; // cumulated render time
