@@ -422,7 +422,8 @@ fn load_all_sprites(wad: &Wad, bank: &mut TextureBank) -> Result<(), LoadError> 
 
     for idx in start_index..end_index {
         let name = Wad::lump_name_str(&wad.lumps()[idx].name);
-        bank.insert(name, decode_patch(name, wad.lump_bytes(idx)?))?;
+        let id = bank.insert(name, decode_patch(name, wad.lump_bytes(idx)?))?;
+        bank.register_sprite_lump(name, id);
     }
 
     Ok(())

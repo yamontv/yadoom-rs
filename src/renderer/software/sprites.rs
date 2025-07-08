@@ -158,7 +158,7 @@ impl Software {
         ss_idx: SubsectorId,
         sim: &TicRunner,
         camera: &Camera,
-        tex_bank: &mut TextureBank,
+        tex_bank: &TextureBank,
     ) {
         let mut out: Vec<VisSprite> = Vec::new();
         let focal = camera.screen_scale(self.width);

@@ -78,7 +78,7 @@ impl Renderer for Software {
         level: &Level,
         sim: &TicRunner,
         camera: &Camera,
-        texture_bank: &mut TextureBank,
+        texture_bank: &TextureBank,
     ) {
         // win.update_with_buffer(&self.scratch, self.width, self.height);
         if subsectors.is_empty() {

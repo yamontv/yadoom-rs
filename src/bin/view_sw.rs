@@ -99,7 +99,7 @@ fn main() -> anyhow::Result<()> {
         /* draw */
         renderer.begin_frame(W, H);
         level.fill_active_subsectors(&camera, &mut active_subsectors);
-        renderer.draw_level(&active_subsectors, &level, &sim, &camera, &mut texture_bank);
+        renderer.draw_level(&active_subsectors, &level, &sim, &camera, &texture_bank);
         renderer.end_frame(|fb, w, h| {
             // ─────────── accumulate & report every ~3 s ────────────────────
             acc_time += t0.elapsed();

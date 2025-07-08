@@ -20,7 +20,7 @@ pub trait Renderer {
         level: &Level,
         sim: &TicRunner,
         camera: &Camera,
-        texture_bank: &mut TextureBank,
+        texture_bank: &TextureBank,
     );
 
     fn draw_line(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, col: u32);

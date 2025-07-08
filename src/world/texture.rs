@@ -2,8 +2,6 @@
 // The renderer and world logic interact through `TextureId` only.
 
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
-
 use std::ops::{Index, IndexMut};
 
 /// Runtime handle for a texture in this bank.
@@ -97,33 +95,18 @@ impl IndexMut<usize> for Colormap {
     }
 }
 
-/// (sprite code, frame letter, rotation digit) → TextureId
-#[derive(Clone, Copy)]
-struct SpriteKey {
-    code: &'static str, // "POSS"
-    frame: char,        // 'A'..'Z'
-    rot: u8,            // 0 | 1-8
-}
+type SpriteKey = u64; // packed (code , frame , rot)
+type SpriteVal = (TextureId, bool); // (id , flip?)
 
-impl PartialEq for SpriteKey {
-    fn eq(&self, other: &Self) -> bool {
-        self.code == other.code && self.frame == other.frame && self.rot == other.rot
-    }
+#[inline]
+fn pack_sprite_code(code: &str) -> u32 {
+    // code is always 4 ASCII bytes (“TROO”, “POSS”, …)
+    let b = code.as_bytes();
+    (b[0] as u32) << 24 | (b[1] as u32) << 16 | (b[2] as u32) << 8 | (b[3] as u32)
 }
-impl Eq for SpriteKey {}
-impl Hash for SpriteKey {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write(self.code.as_bytes());
-        state.write_u8(self.frame as u8);
-        state.write_u8(self.rot);
-    }
-}
-
-/// Cached result: id == NO_TEXTURE means “definitely missing”.
-#[derive(Clone, Copy)]
-struct SpriteVal {
-    id: TextureId,
-    flip: bool,
+#[inline]
+fn sprite_key(code: &str, frame: char, rot: u8) -> SpriteKey {
+    ((pack_sprite_code(code) as u64) << 16) | ((frame as u8 as u64) << 8) | rot as u64
 }
 
 /// A palette-agnostic, format-agnostic cache of textures.
@@ -260,55 +243,49 @@ impl TextureBank {
         self.shade_table[(shade_idx as usize) << 8 | (texel as usize)]
     }
 
-    /// Resolve (`code`, `frame`, `rot`) exactly once, cache forever.
-    /// Returns `(TextureId, flip)`.  `id == NO_TEXTURE` means “not present”.
-    pub fn sprite_id(
-        &mut self,
-        code: &'static str, // MUST be 4 ascii bytes
-        frame: char,        // 'A'..'Z'
-        rot: u8,            // 0 or 1-8
-    ) -> (TextureId, bool) {
-        let key = SpriteKey { code, frame, rot };
+    pub fn register_sprite_lump(&mut self, lump_name: &str, id: TextureId) {
+        let bytes = lump_name.as_bytes();
+        match bytes.len() {
+            6 => {
+                // „TROOA6”
+                let code = &lump_name[0..4];
+                let frame = bytes[4] as char;
+                let rot = bytes[5] - b'0';
+                self.sprite_cache
+                    .insert(sprite_key(code, frame, rot), (id, false));
+            }
+            8 => {
+                // „POSSB8B2”  or  „POSSB2B8”
+                let code = &lump_name[0..4];
+                let frame = bytes[4] as char;
+                let r1 = bytes[5] - b'0';
+                let r2 = bytes[7] - b'0';
+                // first rotation is the “original”
+                self.sprite_cache
+                    .insert(sprite_key(code, frame, r1), (id, false));
+                self.sprite_cache
+                    .insert(sprite_key(code, frame, r2), (id, true)); // mirrored
+            }
+            _ => { /* ignore weird names */ }
+        }
+    }
 
-        // 1. hot-path
-        if let Some(val) = self.sprite_cache.get(&key) {
-            return (val.id, val.flip);
+    /// O(1) – returns `(NO_TEXTURE, false)` if frame is absent.
+    pub fn sprite_id(&self, code: &str, frame: char, rot: u8) -> (TextureId, bool) {
+        // 1. exact match ----------------------------------------------------
+        if let Some(&(id, flip)) = self.sprite_cache.get(&sprite_key(code, frame, rot)) {
+            return (id, flip);
         }
 
-        // helper | write result once then break
-        let push = |id: TextureId, flip: bool, cache: &mut HashMap<_, _>| {
-            cache.insert(key, SpriteVal { id, flip });
-            (id, flip)
-        };
-
-        // 2. exact the basic 6-char lump   "POSS A 3" → "POSSA3"
-        let lump6 = format!("{code}{frame}{rot}");
-        if let Some(id) = self.id(&lump6) {
-            return push(id, false, &mut self.sprite_cache);
-        }
-
-        // 3. paired 8-byte (only if rot > 0)
+        // 2. billboard fallback --------------------------------------------
         if rot != 0 {
-            let alt = 10 - rot;
-            let fw = format!("{code}{frame}{rot}{frame}{alt}");
-            if let Some(id) = self.id(&fw) {
-                return push(id, false, &mut self.sprite_cache);
-            }
-            let rev = format!("{code}{frame}{alt}{frame}{rot}");
-            if let Some(id) = self.id(&rev) {
-                // reversed pair ⇒ mirror on draw
-                return push(id, true, &mut self.sprite_cache);
+            if let Some(&(id, _)) = self.sprite_cache.get(&sprite_key(code, frame, 0)) {
+                return (id, false); // never mirror A0
             }
         }
 
-        // 4. billboard "A0"
-        let lump0 = format!("{code}{frame}0");
-        if let Some(id) = self.id(&lump0) {
-            return push(id, false, &mut self.sprite_cache);
-        }
-
-        // 5. miss
-        push(NO_TEXTURE, false, &mut self.sprite_cache)
+        // 3. missing  -------------------------------------------------------
+        (NO_TEXTURE, false)
     }
 }
 
