@@ -8,6 +8,7 @@ use crate::{
 use glam::Vec2;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::ops::RangeInclusive;
 
 pub type VisplaneId = u16;
 
@@ -151,12 +152,46 @@ impl UVCursor {
     }
 }
 
+/// Context shared by all spans rendered in a single `flush_planes()` call.
+///
+/// Bundling these fields lets us avoid the long parameter lists that triggered
+/// Clippy's `too_many_arguments` lint while keeping the code easy to read.
+struct SpanContext<'a> {
+    cam_fwd: Vec2,
+    cam_right: Vec2,
+    cam_base: Vec2,
+    bank: &'a TextureBank,
+}
+
+/// All data required to draw a single horizontal span of a visplane.
+struct PlaneDrawParams {
+    tex_id: TextureId,
+    light: i16,
+    y_row: u16,
+    x_range: RangeInclusive<u16>,
+    step: UVStep,
+    cursor: UVCursor,
+}
+
 impl Software {
+    /// Draw and clear all cached visplanes.
+    ///
+    /// *Public signature unchanged – internal helpers were refactored to keep
+    ///  argument lists short and Clippy‑friendly.*
     pub fn flush_planes(&mut self, cam: &Camera, bank: &TextureBank) {
         let cam_fwd = cam.forward();
         let cam_right = cam.right();
         let cam_base = cam.pos.truncate();
 
+        let ctx = SpanContext {
+            cam_fwd,
+            cam_right,
+            cam_base,
+            bank,
+        };
+
+        // Retrieve and replace the plane map so we can iterate without
+        // borrowing issues.
         let plane_map = std::mem::take(&mut self.visplane_map);
 
         // The original Doom drew floors & ceilings *after* the walls, so we
@@ -165,47 +200,47 @@ impl Software {
             if vp.tex == NO_TEXTURE || !vp.modified {
                 continue;
             }
+
             for y in 0..self.height as u16 {
-                let mut xs = u16::MAX; // sentinel “no run”
+                // Track the start of a run (inclusive) while scanning the row.
+                let mut run_start: Option<u16> = None;
 
                 for x in vp.min_x..=vp.max_x {
                     let col = x as usize;
-
                     let inside = vp.top[col] <= y && vp.bottom[col] >= y;
 
-                    if inside {
-                        if xs == u16::MAX {
-                            // run starts
-                            xs = x;
+                    match (inside, run_start) {
+                        (true, None) => run_start = Some(x), // run starts
+                        (false, Some(xs)) => {
+                            // run ends *before* this x
+                            self.emit_span(&ctx, vp, y, xs..=x - 1);
+                            run_start = None;
                         }
-                    } else if xs != u16::MAX {
-                        // run ends
-                        self.emit_span(&cam_fwd, &cam_right, &cam_base, vp, y, xs, x - 1, bank);
-                        xs = u16::MAX;
+                        _ => {}
                     }
                 }
 
-                if xs != u16::MAX {
-                    // tail-run
-                    self.emit_span(&cam_fwd, &cam_right, &cam_base, vp, y, xs, vp.max_x, bank);
+                // Tail‑run up to the visplane's right edge
+                if let Some(xs) = run_start.take() {
+                    self.emit_span(&ctx, vp, y, xs..=vp.max_x);
                 }
             }
         }
+
+        // Put the (now cleared) map back so the rest of the engine can keep
+        // using the same allocation.
+        self.visplane_map = plane_map;
     }
 
-    /// Convert one horizontal pixel run into a perspective-correct [`PlaneSpan`]
-    /// and forward it to the backend renderer.
+    /// Convert a horizontal pixel run into a perspective‑correct span and hand
+    /// it over to the inner draw routine.
     #[inline(always)]
     fn emit_span(
         &mut self,
-        cam_fwd: &Vec2,
-        cam_right: &Vec2,
-        cam_base: &Vec2,
+        ctx: &SpanContext,
         vp: &VisPlane,
         y: u16,
-        x_start: u16,
-        x_end: u16,
-        bank: &TextureBank,
+        x_range: RangeInclusive<u16>,
     ) {
         // signed quantities ----------------------------------------------------
         let plane_height = vp.height as f32 - self.view_z; // <0 floor, >0 ceil
@@ -217,25 +252,28 @@ impl Software {
         let z = self.focal * ratio.abs(); // == |plane_h| * f / |dy|
 
         // screen-space helpers -------------------------------------------------
-        let left_scr = (x_start as f32 + 0.5) - self.half_w;
-        let right_scr = (x_end as f32 + 0.5) - self.half_w;
-        let w_px = (x_end - x_start).max(1) as f32;
+        let x_start = *x_range.start() as f32;
+        let x_end = *x_range.end() as f32;
+
+        let left_scr = (x_start + 0.5) - self.half_w;
+        let right_scr = (x_end + 0.5) - self.half_w;
+        let w_px = (x_end - x_start).max(1.0);
         let step_scr = (right_scr - left_scr) / w_px;
 
         // world position at the left edge of the span -------------------------
-        let base = cam_base
-             + *cam_fwd   * z                                   // forward component
-             + *cam_right * (left_scr * ratio); // **signed** lateral shift
+        let base = ctx.cam_base
+            + ctx.cam_fwd * z // forward component
+            + ctx.cam_right * (left_scr * ratio); // **signed** lateral shift
 
         // world-space step per pixel along X ----------------------------------
-        let d_world = *cam_right * (step_scr * ratio); // **signed**
+        let d_world = ctx.cam_right * (step_scr * ratio); // **signed**
 
         // endpoints -----------------------------------------------------------
         let world_left = base;
         let world_right = base + d_world * w_px;
 
         // Δ texture U,V per screen pixel – pre-multiplied so the inner loop needs
-        // just one fused-add operation.
+        // just one fused‑add operation.
         let step = UVStep {
             du: (world_right.x - world_left.x) / w_px,
             dv: (world_right.y - world_left.y) / w_px,
@@ -246,30 +284,30 @@ impl Software {
             v: world_left.y,
         };
 
-        self.draw_plane(vp.tex, vp.light, y, x_start, x_end, step, cursor, bank);
+        let params = PlaneDrawParams {
+            tex_id: vp.tex,
+            light: vp.light,
+            y_row: y,
+            x_range,
+            step,
+            cursor,
+        };
+
+        self.draw_plane(ctx, params);
     }
 
     #[inline(always)]
-    fn draw_plane(
-        &mut self,
-        tex_id: TextureId,
-        light: i16,
-        y_row: u16,
-        x0: u16,
-        x1: u16,
-        step: UVStep,
-        mut cursor: UVCursor,
-        bank: &TextureBank,
-    ) {
-        let tex = bank
-            .texture(tex_id)
-            .unwrap_or_else(|_| bank.texture(NO_TEXTURE).unwrap());
+    fn draw_plane(&mut self, ctx: &SpanContext, params: PlaneDrawParams) {
+        let tex = ctx
+            .bank
+            .texture(params.tex_id)
+            .unwrap_or_else(|_| ctx.bank.texture(NO_TEXTURE).unwrap());
 
-        // per-pixel deltas in 1/z-space
-        let row_idx = y_row as usize * self.width;
+        // Row in the scratch buffer for this scanline
+        let row_idx = params.y_row as usize * self.width;
         let row = &mut self.scratch[row_idx..][..self.width];
 
-        let base_sh = (255u16.saturating_sub(light as u16) >> 3) as u8;
+        let base_sh = (255u16.saturating_sub(params.light as u16) >> 3) as u8;
 
         debug_assert!(
             tex.w.is_power_of_two() && tex.h.is_power_of_two(),
@@ -279,12 +317,15 @@ impl Software {
         let u_mask = (tex.w - 1) as i32;
         let v_mask = (tex.h - 1) as i32;
 
-        for x in x0..=x1 {
+        let mut cursor = params.cursor;
+        let step = params.step;
+
+        for x in params.x_range.clone() {
             let u = ((cursor.u as i32) & u_mask) as usize;
             let v = ((cursor.v as i32) & v_mask) as usize;
             let col = tex.pixels[v * tex.w + u];
 
-            row[x as usize] = bank.get_color(base_sh, col);
+            row[x as usize] = ctx.bank.get_color(base_sh, col);
 
             cursor.advance(&step);
         }

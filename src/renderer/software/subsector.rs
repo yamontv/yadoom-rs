@@ -110,6 +110,31 @@ enum WallPass {
     },
 }
 
+struct WallJob<'a, 'b> {
+    edge: &'a Edge,
+    ceil_h: f32,
+    floor_h: f32,
+    light: f32,
+    tex: TextureId,
+    kind: ClipKind,
+    pegged: bool,
+    y_off: f32,
+    ceil_vis: VisplaneId,
+    floor_vis: VisplaneId,
+    bank: &'a TextureBank,
+    ds: &'b mut DrawSeg,
+}
+
+struct ColumnJob<'a> {
+    col: usize,
+    cur: &'a WallCursor,
+    span: &'a WallSpan,
+    tex: &'a Texture,
+    y_min: i16,
+    y_max: i16,
+    bank: &'a TextureBank,
+}
+
 impl Software {
     fn sectors_for_seg<'l>(
         &self,
@@ -189,20 +214,20 @@ impl Software {
                 middle_texture,
             } => {
                 ds.silhouette = Silhouette::SOLID;
-                self.push_wall(
-                    &edge,
-                    world_top,
-                    world_bottom,
-                    sec_front.light,
-                    middle_texture,
-                    ClipKind::Solid,
+                self.push_wall(WallJob {
+                    edge: &edge,
+                    ceil_h: world_top,
+                    floor_h: world_bottom,
+                    light: sec_front.light,
+                    tex: middle_texture,
+                    kind: ClipKind::Solid,
                     pegged,
-                    sd_front.y_off,
+                    y_off: sd_front.y_off,
                     ceil_vis,
                     floor_vis,
-                    texture_bank,
-                    &mut ds,
-                );
+                    bank: texture_bank,
+                    ds: &mut ds,
+                });
                 self.add_solid_seg(edge.x_l, edge.x_r);
             }
             WallPass::TwoSided {
@@ -229,35 +254,35 @@ impl Software {
                     ds.tsil_height = lower_ceil_h; // world Z
                 }
 
-                self.push_wall(
-                    &edge,
-                    world_top,
-                    upper_floor_h,
-                    sec_front.light,
-                    upper_tex,
-                    ClipKind::Upper,
+                self.push_wall(WallJob {
+                    edge: &edge,
+                    ceil_h: world_top,
+                    floor_h: upper_floor_h,
+                    light: sec_front.light,
+                    tex: upper_tex,
+                    kind: ClipKind::Upper,
                     pegged,
-                    sd_front.y_off,
-                    cur_ceil_vis,
-                    NO_PLANE,
-                    texture_bank,
-                    &mut ds,
-                );
+                    y_off: sd_front.y_off,
+                    ceil_vis: cur_ceil_vis,
+                    floor_vis: NO_PLANE,
+                    bank: texture_bank,
+                    ds: &mut ds,
+                });
 
-                self.push_wall(
-                    &edge,
-                    lower_ceil_h,
-                    world_bottom,
-                    sec_front.light,
-                    lower_tex,
-                    ClipKind::Lower,
+                self.push_wall(WallJob {
+                    edge: &edge,
+                    ceil_h: lower_ceil_h,
+                    floor_h: world_bottom,
+                    light: sec_front.light,
+                    tex: lower_tex,
+                    kind: ClipKind::Lower,
                     pegged,
-                    sd_front.y_off,
-                    NO_PLANE,
-                    cur_floor_vis,
-                    texture_bank,
-                    &mut ds,
-                );
+                    y_off: sd_front.y_off,
+                    ceil_vis: NO_PLANE,
+                    floor_vis: cur_floor_vis,
+                    bank: texture_bank,
+                    ds: &mut ds,
+                });
             }
         }
 
@@ -345,53 +370,41 @@ impl Software {
         }
     }
 
-    fn push_wall(
-        &mut self,
-        edge: &Edge,
-        ceil_h: f32,
-        floor_h: f32,
-        light: f32,
-        tex: TextureId,
-        kind: ClipKind,
-        pegged: bool,
-        y_off: f32,
-        ceil_vis: VisplaneId,
-        floor_vis: VisplaneId,
-        texture_bank: &TextureBank,
-        ds: &mut DrawSeg,
-    ) {
-        let texturemid_mu = match (kind, pegged) {
-            (ClipKind::Lower, true) => (ceil_h - self.view_z) + y_off,
-            (ClipKind::Lower, false) => (floor_h - self.view_z) + y_off,
-            // everything else (Solid + Upper):
-            (_, true) => (floor_h - self.view_z) + y_off,
-            (_, false) => (ceil_h - self.view_z) + y_off,
+    fn push_wall(&mut self, job: WallJob) {
+        let texturemid_mu = match (job.kind, job.pegged) {
+            (ClipKind::Lower, true) => (job.ceil_h - self.view_z) + job.y_off,
+            (ClipKind::Lower, false) => (job.floor_h - self.view_z) + job.y_off,
+            (_, true) => (job.floor_h - self.view_z) + job.y_off,
+            (_, false) => (job.ceil_h - self.view_z) + job.y_off,
+        };
+
+        let e = job.edge; // alias
+        let span = WallSpan {
+            /* projection --------------------------------------------------- */
+            tex_id: job.tex,
+            shade_idx: ((1.0 - job.light) * 31.0) as u8,
+            u0_over_z: e.uoz_l,
+            u1_over_z: e.uoz_r,
+            inv_z0: e.invz_l,
+            inv_z1: e.invz_r,
+            x_start: e.x_l,
+            x_end: e.x_r,
+            y_top0: self.half_h - (job.ceil_h - self.view_z) * self.focal * e.invz_l,
+            y_top1: self.half_h - (job.ceil_h - self.view_z) * self.focal * e.invz_r,
+            y_bot0: self.half_h - (job.floor_h - self.view_z) * self.focal * e.invz_l,
+            y_bot1: self.half_h - (job.floor_h - self.view_z) * self.focal * e.invz_r,
+            /* tiling ------------------------------------------------------- */
+            wall_h: (job.ceil_h - job.floor_h).abs(),
+            texturemid_mu,
         };
 
         self.emit_and_clip(
-            &WallSpan {
-                /* projection */
-                tex_id: tex,
-                shade_idx: ((1.0 - light) * 31.0) as u8,
-                u0_over_z: edge.uoz_l,
-                u1_over_z: edge.uoz_r,
-                inv_z0: edge.invz_l,
-                inv_z1: edge.invz_r,
-                x_start: edge.x_l,
-                x_end: edge.x_r,
-                y_top0: self.half_h - (ceil_h - self.view_z) * self.focal * edge.invz_l,
-                y_top1: self.half_h - (ceil_h - self.view_z) * self.focal * edge.invz_r,
-                y_bot0: self.half_h - (floor_h - self.view_z) * self.focal * edge.invz_l,
-                y_bot1: self.half_h - (floor_h - self.view_z) * self.focal * edge.invz_r,
-                /* tiling */
-                wall_h: (ceil_h - floor_h).abs(),
-                texturemid_mu,
-            },
-            kind,
-            ceil_vis,
-            floor_vis,
-            texture_bank,
-            ds,
+            &span,
+            job.kind,
+            job.ceil_vis,
+            job.floor_vis,
+            job.bank,
+            job.ds,
         );
     }
 
@@ -401,32 +414,26 @@ impl Software {
     }
 
     #[inline]
-    fn draw_column(
-        &mut self,
-        col: usize,
-        cur: &WallCursor,
-        span: &WallSpan,
-        bank: &TextureBank,
-        tex: &Texture,
-        y_min: i16,
-        y_max: i16,
-    ) {
-        if y_max < y_min {
+    fn draw_column(&mut self, job: ColumnJob) {
+        if job.y_max < job.y_min {
             return;
         }
 
-        // Fixed DOOM vertical scaling.
-        let col_px_h = (cur.y_bot - cur.y_top).max(1.0);
-        let dv_mu = span.wall_h / col_px_h; // map‑units per pixel
-        let mut v_mu = span.texturemid_mu + (y_min as f32 - self.half_h) * dv_mu;
+        // Fixed-ratio DOOM vertical scaling.
+        let col_px_h = (job.cur.y_bot - job.cur.y_top).max(1.0);
+        let dv_mu = job.span.wall_h / col_px_h; // map-units per pixel
+        let mut v_mu = job.span.texturemid_mu + (job.y_min as f32 - self.half_h) * dv_mu;
 
-        // Horizontal texture coordinate stays constant in a column.
-        let u_tex = ((cur.u_over_z / cur.inv_z) as i32).rem_euclid(tex.w as i32) as usize;
+        // Horizontal tex-coord is constant inside a column.
+        let u_tex =
+            ((job.cur.u_over_z / job.cur.inv_z) as i32).rem_euclid(job.tex.w as i32) as usize;
 
-        for y in y_min..=y_max {
-            let v_tex = (v_mu as i32).rem_euclid(tex.h as i32) as usize;
-            self.scratch[y as usize * self.width + col] =
-                bank.get_color(span.shade_idx, tex.pixels[v_tex * tex.w + u_tex]);
+        for y in job.y_min..=job.y_max {
+            let v_tex = (v_mu as i32).rem_euclid(job.tex.h as i32) as usize;
+            self.scratch[y as usize * self.width + job.col] = job.bank.get_color(
+                job.span.shade_idx,
+                job.tex.pixels[v_tex * job.tex.w + u_tex],
+            );
             v_mu += dv_mu;
         }
     }
@@ -459,15 +466,15 @@ impl Software {
                 let y1 = cur.y_bot.min((floor_band - 1) as f32).floor() as i16;
 
                 if proto.tex_id != NO_TEXTURE && self.column_visible(col, cur.y_top, cur.y_bot) {
-                    self.draw_column(
+                    self.draw_column(ColumnJob {
                         col,
-                        &cur,
-                        proto,
-                        texture_bank,
+                        cur: &cur,
+                        span: proto,
                         tex,
-                        y0.max(0),
-                        y1.min((self.height - 1) as i16),
-                    );
+                        y_min: y0.max(0),
+                        y_max: y1.min((self.height - 1) as i16),
+                        bank: texture_bank,
+                    });
                 }
 
                 if let Some(vp) = self.visplane_map.get(ceil_vis) {
