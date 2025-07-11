@@ -86,10 +86,7 @@ impl Renderer for Software {
         }
 
         self.focal = camera.screen_scale(self.width);
-
-        let sec0_idx = level.subsectors[subsectors[0] as usize].sector;
-        let floor_z = level.sectors[sec0_idx as usize].floor_h;
-        self.view_z = camera.pos.z + floor_z;
+        self.view_z = camera.pos.z;
 
         for ss_idx in subsectors.iter().copied() {
             let ss = &level.subsectors[ss_idx as usize];

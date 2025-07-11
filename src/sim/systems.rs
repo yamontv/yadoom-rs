@@ -1,6 +1,7 @@
 use glam::{Vec2, Vec3};
 use hecs::World;
 
+use super::tic::DT;
 use crate::defs::MobjInfo;
 use crate::defs::flags::MobjFlags;
 use crate::defs::state::State;
@@ -12,6 +13,14 @@ pub struct Pos(pub Vec2, pub f32);
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Vel(pub Vec3);
+
+impl Vel {
+    #[inline]
+    pub fn zero_xy(&mut self) {
+        self.0.x = 0.0;
+        self.0.y = 0.0;
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct Angle(pub f32);
@@ -26,6 +35,17 @@ pub struct Class(pub &'static MobjInfo);
 pub struct Anim {
     pub state: State,
     pub tics: i32,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct InputCmd {
+    pub forward: f32,       // –1 … +1
+    pub strafe: f32,        // –1 … +1  (left / right)
+    pub turn: f32,          // –1 … +1  (right / left)
+    pub run: bool,          // Shift
+    pub fire: bool,         // Ctrl
+    pub use_act: bool,      // Space
+    pub weapon: Option<u8>, // 1-7 if pressed this tic
 }
 
 /* ── Animation system ─────────────────────────────────────────────── */
@@ -43,39 +63,98 @@ pub fn animation(world: &mut World) {
 
 pub const GRAVITY: f32 = 0.5; // 0.5 map-units / tic²   (≈ 9.8 m/s²)
 pub const FRICTION: f32 = 0.875; // vanilla P_XYFriction()
-
+pub const MOVE_SPEED: f32 = 250.0; // map-units / second
+pub const TURN_RATE: f32 = std::f32::consts::PI; // rad / second (180°/s)
+pub const MAX_STEP_HEIGHT: f32 = 24.0; // max step 24 mu without a jump button */
 pub fn physics(world: &mut World, level: &Level) {
-    // we need Pos, Vel and Subsector to collide against the proper floor
     for (_, (pos, vel, ssec, class)) in
         world.query_mut::<(&mut Pos, &mut Vel, &mut Subsector, &Class)>()
     {
-        /* --- 1. vertical ------------------------------------------------- */
-        if !class.0.flags.contains(MobjFlags::NOGRAVITY) {
-            vel.0.z -= GRAVITY; // gravity every tic
-        };
-        pos.1 += vel.0.z; // integrate
-
-        // lookup the sector containing this subsector to get its floor-z
-        let sector_id = level.subsectors[ssec.0 as usize].sector;
-        let floor_z = level.sectors[sector_id as usize].floor_h;
-        if pos.1 < floor_z {
-            pos.1 = floor_z; // clamp to floor
-            vel.0.z = 0.0; // lost all vertical momentum
-        }
-        if pos.1 == floor_z {
-            vel.0.x *= FRICTION;
-            vel.0.y *= FRICTION;
-        }
-
-        /* --- 2. horizontal ---------------------------------------------- */
+        /* ------------------------------------------------------- XY move */
         let old_xy = pos.0;
         pos.0 += vel.0.truncate();
 
-        /* --- 3. subsector cache update ---------------------------------- */
-        // Only pay the BSP walk if the centre actually moved.
+        /* refresh subsector *immediately* if X-Y changed */
         if pos.0 != old_xy {
-            // object may have crossed a node – ask BSP to refresh its leaf
             ssec.0 = level.locate_subsector(pos.0);
+        }
+
+        /* ------------------------------------------------------- look up sector heights */
+        let sector_id = level.subsectors[ssec.0 as usize].sector as usize;
+        let sector = &level.sectors[sector_id];
+        let floor_z = sector.floor_h;
+        let ceil_z = sector.ceil_h;
+
+        /* ------------------------------------------------------- Z move  */
+        if !class.0.flags.contains(MobjFlags::NOGRAVITY) {
+            vel.0.z -= GRAVITY;
+        }
+        pos.1 += vel.0.z;
+
+        /* --------------- clamp to floor (with step-up help) ------------- */
+        if pos.1 < floor_z {
+            // below floor → snap + kill momentum
+            pos.1 = floor_z;
+            vel.0.z = 0.0;
+        } else {
+            // try to *step up* small rises (stairs, ledges)
+            let delta = pos.1 - floor_z;
+            if 0.0 < delta && delta < MAX_STEP_HEIGHT {
+                pos.1 = floor_z; // gently slide onto the step
+            }
+        }
+
+        /* --------------- clamp to ceiling ------------------------------- */
+        if pos.1 > ceil_z {
+            pos.1 = ceil_z;
+            vel.0.z = 0.0;
+        }
+
+        /* --------------- friction only when on ground ------------------- */
+        if (pos.1 - floor_z).abs() < f32::EPSILON {
+            vel.0.x *= FRICTION;
+            vel.0.y *= FRICTION;
+        }
+    }
+}
+
+pub fn player_input(world: &mut World, player: hecs::Entity, cmd: InputCmd) {
+    if let Ok(mut q) = world.query_one::<(&mut Angle, &mut Vel)>(player) {
+        if let Some((ang, vel)) = q.get() {
+            /* 1. turn (scaled inside system) */
+            if cmd.turn != 0.0 {
+                ang.0 = (ang.0 + cmd.turn * TURN_RATE * DT).rem_euclid(std::f32::consts::TAU);
+            }
+
+            let speed = if cmd.run {
+                MOVE_SPEED * 1.5
+            } else {
+                MOVE_SPEED
+            };
+
+            /* 2. wish-vel (scaled inside system) */
+            if cmd.forward != 0.0 || cmd.strafe != 0.0 {
+                let (s, c) = ang.0.sin_cos();
+                let fwd = glam::Vec2::new(c, s);
+                let right = fwd.perp();
+                let dir = (fwd * cmd.forward) - (right * cmd.strafe);
+                let wish = dir.normalize_or_zero();
+
+                vel.0.x = wish.x * speed * DT;
+                vel.0.y = wish.y * speed * DT;
+            } else {
+                vel.zero_xy();
+            }
+
+            if cmd.fire {
+                println!("FIRE!");
+            }
+            if cmd.use_act {
+                println!("USE / OPEN");
+            }
+            if let Some(w) = cmd.weapon {
+                println!("select weapon {}", w);
+            }
         }
     }
 }

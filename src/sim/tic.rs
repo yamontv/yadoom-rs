@@ -4,6 +4,7 @@ use hecs::World;
 use std::time::{Duration, Instant};
 
 pub const SIM_FPS: u32 = 35;
+pub const DT: f32 = 1.0 / SIM_FPS as f32;
 const TIC: Duration = Duration::from_micros(1_000_000 / SIM_FPS as u64);
 
 /// Owns the ECS world and drives all game‑logic systems.
@@ -29,6 +30,11 @@ impl TicRunner {
     #[inline]
     pub fn world(&self) -> &hecs::World {
         &self.world
+    }
+
+    #[inline]
+    pub fn world_mut(&mut self) -> &mut hecs::World {
+        &mut self.world
     }
 
     /// Spawn a monster/item entity and return its `Entity` handle.
