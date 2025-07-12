@@ -1,6 +1,8 @@
 use glam::{Vec2, Vec3};
 use hecs::World;
 
+use super::{MoveResult, slide_move};
+
 use super::tic::DT;
 use crate::defs::MobjInfo;
 use crate::defs::flags::MobjFlags;
@@ -71,12 +73,19 @@ pub fn physics(world: &mut World, level: &Level) {
         world.query_mut::<(&mut Pos, &mut Vel, &mut Subsector, &Class)>()
     {
         /* ------------------------------------------------------- XY move */
-        let old_xy = pos.0;
-        pos.0 += vel.0.truncate();
+        let MoveResult {
+            pos: new_xy,
+            subsector: new_ss,
+            hit_wall,
+        } = slide_move(level, ssec.0, pos.0, vel.0.truncate(), class);
 
-        /* refresh subsector *immediately* if X-Y changed */
-        if pos.0 != old_xy {
-            ssec.0 = level.locate_subsector(pos.0);
+        pos.0 = new_xy;
+        ssec.0 = new_ss;
+
+        // very cheap feedback – halt XY momentum on a hard wall hit
+        if hit_wall {
+            vel.0.x = 0.0;
+            vel.0.y = 0.0;
         }
 
         /* ------------------------------------------------------- look up sector heights */
