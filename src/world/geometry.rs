@@ -23,6 +23,7 @@ pub struct Level {
     pub subsectors: Vec<Subsector>,
     pub nodes: Vec<Node>,
     pub sectors: Vec<Sector>,
+    pub blockmap: Blockmap,
 }
 
 /*------------------------- game objects -----------------------------*/
@@ -58,6 +59,7 @@ bitflags! {
 
 #[derive(Clone, Debug)]
 pub struct Linedef {
+    pub id: LinedefId,
     pub v1: VertexId,
     pub v2: VertexId,
     pub flags: LinedefFlags,
@@ -65,6 +67,7 @@ pub struct Linedef {
     pub tag: u16,
     pub right_sidedef: Option<SidedefId>,
     pub left_sidedef: Option<SidedefId>,
+    pub bbox: Aabb,
 }
 
 /*--------------------------- sidedefs -------------------------------*/
@@ -104,7 +107,7 @@ pub struct Subsector {
     pub things: Vec<ThingId>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Aabb {
     pub min: Vec2, // (x_min, z_min)
     pub max: Vec2, // (x_max, z_max)
@@ -129,4 +132,14 @@ pub struct Sector {
     pub light: f32,
     pub special: i16,
     pub tag: i16,
+}
+
+#[derive(Debug, Clone)]
+pub struct Blockmap {
+    /// World-space origin of cell (0, 0)
+    pub origin: Vec2,
+    pub width: i32,  // number of columns
+    pub height: i32, // number of rows
+    /// For each cell: list of linedef indices crossing that 128-unit square
+    pub lines: Vec<Vec<LinedefId>>,
 }

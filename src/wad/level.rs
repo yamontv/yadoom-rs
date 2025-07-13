@@ -1,5 +1,6 @@
 use crate::wad::raw::{Wad, WadError};
 use bincode::Decode;
+use byteorder::{LittleEndian, ReadBytesExt};
 use once_cell::sync::Lazy;
 use regex::Regex;
 
@@ -87,6 +88,17 @@ pub struct RawSector {
     pub tag: i16,
 }
 
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct RawBlockmap {
+    pub origin_x: i16,
+    pub origin_y: i16,
+    pub width: i16,
+    pub height: i16,
+    pub offsets: Vec<i16>, // length == width*height
+    pub data: Vec<i16>,    // sequences of linedef indices, -1 terminated
+}
+
 /*=======================================================================*/
 /*                     Aggregate returned by `parse_level`               */
 /*=======================================================================*/
@@ -101,6 +113,8 @@ pub struct RawLevel {
     pub subsectors: Vec<RawSubsector>,
     pub nodes: Vec<RawNode>,
     pub sectors: Vec<RawSector>,
+    pub reject: Vec<u8>,
+    pub blockmap: RawBlockmap,
 }
 
 /*=======================================================================*/
@@ -117,6 +131,9 @@ pub enum LevelError {
 
     #[error(transparent)]
     Wad(#[from] WadError),
+
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
 }
 
 /*=======================================================================*/
@@ -145,6 +162,36 @@ impl Wad {
         }
     }
 
+    fn parse_blockmap(&self, blockmap_idx: usize) -> Result<RawBlockmap, LevelError> {
+        let bm_bytes = self.lump_bytes(blockmap_idx)?;
+        let mut rdr = std::io::Cursor::new(bm_bytes);
+
+        let origin_x = rdr.read_i16::<LittleEndian>()?;
+        let origin_y = rdr.read_i16::<LittleEndian>()?;
+        let width = rdr.read_i16::<LittleEndian>()?;
+        let height = rdr.read_i16::<LittleEndian>()?;
+
+        let cell_cnt = (width as usize) * (height as usize);
+        let mut offsets = Vec::with_capacity(cell_cnt);
+        for _ in 0..cell_cnt {
+            offsets.push(rdr.read_i16::<LittleEndian>()?);
+        }
+
+        let mut data = Vec::new();
+        while let Ok(v) = rdr.read_i16::<LittleEndian>() {
+            data.push(v);
+        }
+
+        Ok(RawBlockmap {
+            origin_x,
+            origin_y,
+            width,
+            height,
+            offsets,
+            data,
+        })
+    }
+
     /// Decode the eight mandatory lumps that make up a classic Doom map.
     pub fn parse_level(&self, marker_idx: usize) -> Result<RawLevel, LevelError> {
         // --- bounds check on marker index --------------------------------
@@ -161,7 +208,8 @@ impl Wad {
         let ssectors_idx = self.idx_of(marker_idx + 6, "SSECTORS")?;
         let nodes_idx = self.idx_of(marker_idx + 7, "NODES")?;
         let sectors_idx = self.idx_of(marker_idx + 8, "SECTORS")?;
-        // REJECT / BLOCKMAP can be skipped while prototyping
+        let reject_idx = self.idx_of(marker_idx + 9, "REJECT")?;
+        let blockmap_idx = self.idx_of(marker_idx + 10, "BLOCKMAP")?;
 
         // --- decode each lump -------------------------------------------
         let things = self.lump_to_vec::<RawThing>(things_idx)?;
@@ -172,6 +220,8 @@ impl Wad {
         let subsectors = self.lump_to_vec::<RawSubsector>(ssectors_idx)?;
         let nodes = self.lump_to_vec::<RawNode>(nodes_idx)?;
         let sectors = self.lump_to_vec::<RawSector>(sectors_idx)?;
+        let reject = self.lump_bytes(reject_idx)?.to_vec();
+        let blockmap = self.parse_blockmap(blockmap_idx)?;
 
         Ok(RawLevel {
             name: Self::lump_name_str(&self.lumps()[marker_idx].name).into(),
@@ -183,6 +233,8 @@ impl Wad {
             subsectors,
             nodes,
             sectors,
+            reject,
+            blockmap,
         })
     }
 }

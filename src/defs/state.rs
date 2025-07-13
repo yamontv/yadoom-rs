@@ -1,7 +1,7 @@
 // AUTO-GENERATED - see tools/gen_mobjinfo
 
 #[repr(usize)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq)]
 #[allow(non_camel_case_types)]
 pub enum State {
     NULL = 0,

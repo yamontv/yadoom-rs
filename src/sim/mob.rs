@@ -1,14 +1,8 @@
-use super::{Angle, Anim, Class, Pos, Subsector, Vel};
+use super::{ActorFlags, Angle, Anim, Class, Pos, Subsector, Vel};
 use crate::defs::{MobjInfo, flags::MobjFlags};
 use crate::world::geometry::Level;
 use glam::{Vec2, Vec3};
 use hecs::World;
-
-// sim/num.rs  (or inside mob.rs)
-pub fn xy_from_speed(speed: f32, angle_rad: f32) -> glam::Vec2 {
-    // Doom’s map units: east = 0 rad, counter-clockwise positive
-    glam::Vec2::new(angle_rad.cos(), angle_rad.sin()) * speed
-}
 
 pub fn spawn_mobj(
     world: &mut World,
@@ -19,8 +13,6 @@ pub fn spawn_mobj(
     angle: f32,
     subsector: u16,
 ) -> hecs::Entity {
-    let speed = info.speed; // map-units per tic
-
     let sec_idx = level.subsectors[subsector as usize].sector;
     let sector = &level.sectors[sec_idx as usize];
 
@@ -30,16 +22,10 @@ pub fn spawn_mobj(
         sector.floor_h
     };
 
-    let vel = if speed > 0 {
-        let v = xy_from_speed(speed as f32, angle);
-        Vec3::new(v.x, v.y, 0.0)
-    } else {
-        Vec3::ZERO
-    };
-
     world.spawn((
+        ActorFlags(info.flags),
         Pos(Vec2::new(x, y), z),
-        Vel(vel),
+        Vel(Vec3::ZERO),
         Angle(angle),
         Subsector(subsector),
         Anim {

@@ -1,9 +1,7 @@
 use glam::{Vec2, Vec3};
 use hecs::World;
 
-use super::{MoveResult, slide_move};
-
-use super::tic::DT;
+use super::{tic::DT, xy_movement_system};
 use crate::defs::MobjInfo;
 use crate::defs::flags::MobjFlags;
 use crate::defs::state::State;
@@ -39,6 +37,10 @@ pub struct Anim {
     pub tics: i32,
 }
 
+/// Player-size flag wrapper – fill in later
+#[derive(Clone, Copy, Debug)]
+pub struct ActorFlags(pub MobjFlags);
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct InputCmd {
     pub forward: f32,       // –1 … +1
@@ -63,68 +65,63 @@ pub fn animation(world: &mut World) {
     }
 }
 
-pub const GRAVITY: f32 = 0.5; // 0.5 map-units / tic²   (≈ 9.8 m/s²)
-pub const FRICTION: f32 = 0.875; // vanilla P_XYFriction()
+// pub const GRAVITY: f32 = 0.5; // 0.5 map-units / tic²   (≈ 9.8 m/s²)
+// pub const FRICTION: f32 = 0.875; // vanilla P_XYFriction()
 pub const MOVE_SPEED: f32 = 250.0; // map-units / second
 pub const TURN_RATE: f32 = std::f32::consts::PI; // rad / second (180°/s)
 pub const MAX_STEP_HEIGHT: f32 = 24.0; // max step 24 mu without a jump button */
 pub fn physics(world: &mut World, level: &Level) {
-    for (_, (pos, vel, ssec, class)) in
-        world.query_mut::<(&mut Pos, &mut Vel, &mut Subsector, &Class)>()
-    {
-        /* ------------------------------------------------------- XY move */
-        let MoveResult {
-            pos: new_xy,
-            subsector: new_ss,
-            hit_wall,
-        } = slide_move(level, ssec.0, pos.0, vel.0.truncate(), class);
+    xy_movement_system(world, level);
+    // for (_, (pos, vel, ssec, class)) in
+    //     world.query_mut::<(&mut Pos, &mut Vel, &mut Subsector, &Class)>()
+    // {
+    //     /* ------------------------------------------------------- XY move */
+    //     let MoveResult {
+    //         pos: new_xy,
+    //         subsector: new_ss,
+    //         hit_wall,
+    //     } = slide_move(level, ssec.0, pos.0, vel.0.truncate(), class);
 
-        pos.0 = new_xy;
-        ssec.0 = new_ss;
+    //     pos.0 = new_xy;
+    //     ssec.0 = new_ss;
 
-        // very cheap feedback – halt XY momentum on a hard wall hit
-        if hit_wall {
-            vel.0.x = 0.0;
-            vel.0.y = 0.0;
-        }
+    //     /* ------------------------------------------------------- look up sector heights */
+    //     let sector_id = level.subsectors[ssec.0 as usize].sector as usize;
+    //     let sector = &level.sectors[sector_id];
+    //     let floor_z = sector.floor_h;
+    //     let ceil_z = sector.ceil_h;
 
-        /* ------------------------------------------------------- look up sector heights */
-        let sector_id = level.subsectors[ssec.0 as usize].sector as usize;
-        let sector = &level.sectors[sector_id];
-        let floor_z = sector.floor_h;
-        let ceil_z = sector.ceil_h;
+    //     /* ------------------------------------------------------- Z move  */
+    //     if !class.0.flags.contains(MobjFlags::NOGRAVITY) {
+    //         vel.0.z -= GRAVITY;
+    //     }
+    //     pos.1 += vel.0.z;
 
-        /* ------------------------------------------------------- Z move  */
-        if !class.0.flags.contains(MobjFlags::NOGRAVITY) {
-            vel.0.z -= GRAVITY;
-        }
-        pos.1 += vel.0.z;
+    //     /* --------------- clamp to floor (with step-up help) ------------- */
+    //     if pos.1 < floor_z {
+    //         // below floor → snap + kill momentum
+    //         pos.1 = floor_z;
+    //         vel.0.z = 0.0;
+    //     } else {
+    //         // try to *step up* small rises (stairs, ledges)
+    //         let delta = pos.1 - floor_z;
+    //         if 0.0 < delta && delta < MAX_STEP_HEIGHT {
+    //             pos.1 = floor_z; // gently slide onto the step
+    //         }
+    //     }
 
-        /* --------------- clamp to floor (with step-up help) ------------- */
-        if pos.1 < floor_z {
-            // below floor → snap + kill momentum
-            pos.1 = floor_z;
-            vel.0.z = 0.0;
-        } else {
-            // try to *step up* small rises (stairs, ledges)
-            let delta = pos.1 - floor_z;
-            if 0.0 < delta && delta < MAX_STEP_HEIGHT {
-                pos.1 = floor_z; // gently slide onto the step
-            }
-        }
+    //     /* --------------- clamp to ceiling ------------------------------- */
+    //     if pos.1 > ceil_z {
+    //         pos.1 = ceil_z;
+    //         vel.0.z = 0.0;
+    //     }
 
-        /* --------------- clamp to ceiling ------------------------------- */
-        if pos.1 > ceil_z {
-            pos.1 = ceil_z;
-            vel.0.z = 0.0;
-        }
-
-        /* --------------- friction only when on ground ------------------- */
-        if (pos.1 - floor_z).abs() < f32::EPSILON {
-            vel.0.x *= FRICTION;
-            vel.0.y *= FRICTION;
-        }
-    }
+    //     /* --------------- friction only when on ground ------------------- */
+    //     if (pos.1 - floor_z).abs() < f32::EPSILON {
+    //         vel.0.x *= FRICTION;
+    //         vel.0.y *= FRICTION;
+    //     }
+    // }
 }
 
 pub fn player_input(world: &mut World, player: hecs::Entity, cmd: InputCmd) {

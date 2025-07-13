@@ -4,7 +4,7 @@ bitflags! {
     /// Behaviour / collision flags carried by every **mobj** at runtime.
     ///
     /// The numeric values are copied 1-for-1 from `doom/info.h`.
-    #[derive(Default, Clone, Debug)]
+    #[derive(Default, Clone, Copy, Debug)]
     pub struct MobjFlags: u32 {
         // Call `P_SpecialThing` when touched.
         const SPECIAL        = 0x0000_0001;

@@ -92,10 +92,19 @@ pub fn load_level(
 
     let things: Vec<Thing> = raw.things.into_iter().map(raw_to_geo::thing_from).collect();
 
-    let linedefs: Vec<Linedef> = raw
+    let linedefs: Vec<geo::Linedef> = raw
         .linedefs
         .into_iter()
-        .map(raw_to_geo::linedef_from)
+        .enumerate()
+        .map(|(idx, raw_ld)| {
+            let v1 = &raw.vertices[raw_ld.v1 as usize];
+            let v2 = &raw.vertices[raw_ld.v2 as usize];
+            let bbox = geo::Aabb {
+                min: Vec2::new(v1.x.min(v2.x) as f32, v1.y.min(v2.y) as f32),
+                max: Vec2::new(v1.x.max(v2.x) as f32, v1.y.max(v2.y) as f32),
+            };
+            raw_to_geo::linedef_from(raw_ld, idx as geo::LinedefId, bbox)
+        })
         .collect();
 
     let vertices: Vec<Vertex> = raw
@@ -146,6 +155,8 @@ pub fn load_level(
         })
         .collect::<Result<_, LoadError>>()?;
 
+    let blockmap = raw_to_geo::blockmap_from(raw.blockmap);
+
     /*----- 6. Assemble world::Level -------------------------------------*/
     Ok(Level {
         name: raw.name,
@@ -157,6 +168,7 @@ pub fn load_level(
         subsectors,
         nodes,
         sectors,
+        blockmap,
     })
 }
 
@@ -183,8 +195,13 @@ mod raw_to_geo {
         }
     }
 
-    pub fn linedef_from(r: raw_level::RawLinedef) -> geo::Linedef {
+    pub fn linedef_from(
+        r: raw_level::RawLinedef,
+        id: geo::LinedefId,
+        bbox: geo::Aabb,
+    ) -> geo::Linedef {
         geo::Linedef {
+            id,
             v1: r.v1 as geo::VertexId,
             v2: r.v2 as geo::VertexId,
             flags: geo::LinedefFlags::from_bits_truncate(r.flags as u16),
@@ -192,6 +209,7 @@ mod raw_to_geo {
             tag: r.tag as u16,
             right_sidedef: (r.sidenum[0] >= 0).then_some(r.sidenum[0] as geo::SidedefId),
             left_sidedef: (r.sidenum[1] >= 0).then_some(r.sidenum[1] as geo::SidedefId),
+            bbox,
         }
     }
 
@@ -239,6 +257,33 @@ mod raw_to_geo {
             dy: r.dy as f32,
             bbox: [raw_bbox_to_aabb(&r.bbox[0]), raw_bbox_to_aabb(&r.bbox[1])],
             child: r.child,
+        }
+    }
+
+    pub fn blockmap_from(r: raw_level::RawBlockmap) -> geo::Blockmap {
+        let cell_cnt = (r.width as usize) * (r.height as usize);
+        let data_base = 4 + cell_cnt as i16; // header + offset table
+
+        let mut bm_lines: Vec<Vec<geo::LinedefId>> = vec![Vec::new(); cell_cnt];
+
+        for (cell, &off) in r.offsets.iter().enumerate() {
+            // convert lump-relative word offset → index into `r.data`
+            let mut i = (off - data_base) as usize; // ← FIX ❶
+            while i < r.data.len() {
+                let v = r.data[i];
+                if v == -1 {
+                    break;
+                }
+                bm_lines[cell].push(v as geo::LinedefId);
+                i += 1;
+            }
+        }
+
+        geo::Blockmap {
+            origin: vec2(r.origin_x as f32, r.origin_y as f32),
+            width: r.width as i32,
+            height: r.height as i32,
+            lines: bm_lines,
         }
     }
 }
