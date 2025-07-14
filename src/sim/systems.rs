@@ -5,7 +5,7 @@ use super::{tic::DT, xy_movement_system};
 use crate::defs::MobjInfo;
 use crate::defs::flags::MobjFlags;
 use crate::defs::state::State;
-use crate::world::geometry::Level;
+use crate::world::Level;
 
 /// World‑space position.  z is separate to match Doom’s 2½‑D maths.
 #[derive(Debug, Clone, Copy)]

@@ -1,14 +1,13 @@
-use crate::{
-    renderer::software::{
-        Software,
-        planes::{NO_PLANE, VisplaneId},
-        projection::Edge,
-        sprites::{DrawSeg, Silhouette},
-    },
-    world::{
-        geometry::{Level, Linedef, LinedefFlags, Sector, Seg, SegmentId, Sidedef},
-        texture::{NO_TEXTURE, Texture, TextureBank, TextureId},
-    },
+use super::{
+    Software,
+    planes::{NO_PLANE, VisplaneId},
+    projection::Edge,
+    sprites::{DrawSeg, Silhouette},
+};
+
+use crate::world::{
+    Level, Linedef, LinedefFlags, NO_TEXTURE, Sector, Segment, SegmentId, Sidedef, Texture,
+    TextureBank, TextureId,
 };
 
 #[derive(Clone, Copy, PartialEq)]
@@ -138,7 +137,7 @@ struct ColumnJob<'a> {
 impl Software {
     fn sectors_for_seg<'l>(
         &self,
-        seg: &Seg,
+        seg: &Segment,
         level: &'l Level,
     ) -> (&'l Sidedef, Option<&'l Sector>, &'l Linedef) {
         let ld = &level.linedefs[seg.linedef as usize];

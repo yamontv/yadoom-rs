@@ -1,5 +1,5 @@
 use super::{mob, systems};
-use crate::world::geometry::Level;
+use crate::world::Level;
 use hecs::World;
 use std::time::{Duration, Instant};
 

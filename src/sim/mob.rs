@@ -1,6 +1,6 @@
 use super::{ActorFlags, Angle, Anim, Class, Pos, Subsector, Vel};
 use crate::defs::{MobjInfo, flags::MobjFlags};
-use crate::world::geometry::Level;
+use crate::world::Level;
 use glam::{Vec2, Vec3};
 use hecs::World;
 

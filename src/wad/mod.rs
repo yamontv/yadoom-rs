@@ -1,3 +1,6 @@
-pub mod level;
-pub mod loader;
-pub mod raw;
+mod level;
+mod loader;
+mod raw;
+
+pub use loader::load_level;
+pub use raw::Wad;

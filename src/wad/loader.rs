@@ -2,21 +2,18 @@
 // wad/loader.rs
 //
 //  *   RawLevel   (wad::level)           ──╮
-//  *   Palette / patches  (from Wad)       │   --->  world::geometry::Level
-//  *   TextureBank (mut)                   │          + populated TextureBank
+//  *   world::Palette / patches  (from Wad)       │   --->  world::geometry::Level
+//  *   world::TextureBank (mut)                   │          + populated world::TextureBank
 //                                          ╯
 // ──────────────────────────────────────────────────────────────────────────
 
-use crate::{
-    wad::level as raw_level,
-    wad::raw::{Wad, WadError},
-    world::{
-        geometry as geo,
-        texture::{Colormap, NO_TEXTURE, Palette, Texture, TextureBank, TextureError, TextureId},
-    },
-};
 use glam::{Vec2, vec2};
 use thiserror::Error;
+
+use super::level as raw_level;
+use super::raw::{Wad, WadError};
+
+use crate::world;
 
 /*──────────────────────────── Error type ───────────────────────────*/
 
@@ -29,7 +26,7 @@ pub enum LoadError {
     Level(#[from] raw_level::LevelError),
 
     #[error(transparent)]
-    Texture(#[from] TextureError),
+    Texture(#[from] world::TextureError),
 
     #[error("PLAYPAL lump missing - cannot build palette")]
     NoPalette,
@@ -51,12 +48,12 @@ pub enum LoadError {
 pub fn load_level(
     wad: &Wad,
     marker: usize,
-    bank: &mut TextureBank,
-) -> Result<geo::Level, LoadError> {
+    bank: &mut world::TextureBank,
+) -> Result<world::Level, LoadError> {
     /*----- 1. Raw lumps --------------------------------------------------*/
     let raw = wad.parse_level(marker)?;
 
-    /*----- 2. Palette needed for patches + flats -------------------------*/
+    /*----- 2. world::Palette needed for patches + flats -------------------------*/
     let palette = load_palette(wad).ok_or(LoadError::NoPalette)?;
 
     bank.set_palette(palette);
@@ -69,7 +66,7 @@ pub fn load_level(
 
     load_all_sprites(wad, bank)?;
 
-    /*----- 3. Patch cache (index → Texture) ------------------------------*/
+    /*----- 3. Patch cache (index → world::Texture) ------------------------------*/
     let patch_vec = decode_all_patches(wad)?;
 
     /*----- 4. Helper: resolve name → TextureId ---------------------------*/
@@ -84,26 +81,26 @@ pub fn load_level(
         if let Some(tex) = decode_flat(wad, &name) {
             return Ok(bank.insert(name, tex)?);
         }
-        Ok(NO_TEXTURE)
+        Ok(world::NO_TEXTURE)
     };
 
     /*----- 5. Convert raw → geo lists ------------------------------------*/
-    use geo::*;
+    use world::*;
 
     let things: Vec<Thing> = raw.things.into_iter().map(raw_to_geo::thing_from).collect();
 
-    let linedefs: Vec<geo::Linedef> = raw
+    let linedefs: Vec<world::Linedef> = raw
         .linedefs
         .into_iter()
         .enumerate()
         .map(|(idx, raw_ld)| {
             let v1 = &raw.vertices[raw_ld.v1 as usize];
             let v2 = &raw.vertices[raw_ld.v2 as usize];
-            let bbox = geo::Aabb {
+            let bbox = world::Aabb {
                 min: Vec2::new(v1.x.min(v2.x) as f32, v1.y.min(v2.y) as f32),
                 max: Vec2::new(v1.x.max(v2.x) as f32, v1.y.max(v2.y) as f32),
             };
-            raw_to_geo::linedef_from(raw_ld, idx as geo::LinedefId, bbox)
+            raw_to_geo::linedef_from(raw_ld, idx as world::LinedefId, bbox)
         })
         .collect();
 
@@ -113,7 +110,7 @@ pub fn load_level(
         .map(raw_to_geo::vertex_from)
         .collect();
 
-    let segs: Vec<Seg> = raw.segs.into_iter().map(raw_to_geo::seg_from).collect();
+    let segs: Vec<Segment> = raw.segs.into_iter().map(raw_to_geo::seg_from).collect();
 
     let subsectors: Vec<Subsector> = raw
         .subsectors
@@ -134,7 +131,7 @@ pub fn load_level(
                 upper: tex_id(&s.top_tex)?,
                 lower: tex_id(&s.bottom_tex)?,
                 middle: tex_id(&s.mid_tex)?,
-                sector: s.sector as geo::SectorId,
+                sector: s.sector as world::SectorId,
             })
         })
         .collect::<Result<_, LoadError>>()?;
@@ -177,14 +174,14 @@ pub fn load_level(
 /*====================================================================*/
 mod raw_to_geo {
     use super::*;
-    pub fn thing_from(r: raw_level::RawThing) -> geo::Thing {
+    pub fn thing_from(r: raw_level::RawThing) -> world::Thing {
         let min_skill = match r.options & 0x0007 {
             0x0001 => 1,
             0x0002 => 2,
             0x0004 => 3,
             _ => 1,
         };
-        geo::Thing {
+        world::Thing {
             pos: vec2(r.x as f32, r.y as f32),
             angle: (r.angle as f32).to_radians(),
             type_id: r.type_ as u16,
@@ -197,40 +194,40 @@ mod raw_to_geo {
 
     pub fn linedef_from(
         r: raw_level::RawLinedef,
-        id: geo::LinedefId,
-        bbox: geo::Aabb,
-    ) -> geo::Linedef {
-        geo::Linedef {
+        id: world::LinedefId,
+        bbox: world::Aabb,
+    ) -> world::Linedef {
+        world::Linedef {
             id,
-            v1: r.v1 as geo::VertexId,
-            v2: r.v2 as geo::VertexId,
-            flags: geo::LinedefFlags::from_bits_truncate(r.flags as u16),
+            v1: r.v1 as world::VertexId,
+            v2: r.v2 as world::VertexId,
+            flags: world::LinedefFlags::from_bits_truncate(r.flags as u16),
             special: r.special as u16,
             tag: r.tag as u16,
-            right_sidedef: (r.sidenum[0] >= 0).then_some(r.sidenum[0] as geo::SidedefId),
-            left_sidedef: (r.sidenum[1] >= 0).then_some(r.sidenum[1] as geo::SidedefId),
+            right_sidedef: (r.sidenum[0] >= 0).then_some(r.sidenum[0] as world::SidedefId),
+            left_sidedef: (r.sidenum[1] >= 0).then_some(r.sidenum[1] as world::SidedefId),
             bbox,
         }
     }
 
-    pub fn vertex_from(r: raw_level::RawVertex) -> geo::Vertex {
-        geo::Vertex {
+    pub fn vertex_from(r: raw_level::RawVertex) -> world::Vertex {
+        world::Vertex {
             pos: vec2(r.x as f32, r.y as f32),
         }
     }
-    pub fn seg_from(r: raw_level::RawSeg) -> geo::Seg {
-        geo::Seg {
-            v1: r.v1 as geo::VertexId,
-            v2: r.v2 as geo::VertexId,
-            linedef: r.linedef as geo::LinedefId,
+    pub fn seg_from(r: raw_level::RawSeg) -> world::Segment {
+        world::Segment {
+            v1: r.v1 as world::VertexId,
+            v2: r.v2 as world::VertexId,
+            linedef: r.linedef as world::LinedefId,
             dir: r.side as u16,
             offset: r.offset as f32,
         }
     }
-    pub fn subsector_from(r: raw_level::RawSubsector) -> geo::Subsector {
-        geo::Subsector {
+    pub fn subsector_from(r: raw_level::RawSubsector) -> world::Subsector {
+        world::Subsector {
             num_lines: r.seg_count as u16,
-            first_line: r.first_seg as geo::SegmentId,
+            first_line: r.first_seg as world::SegmentId,
             sector: u16::MAX,
             things: Vec::new(),
         }
@@ -242,15 +239,15 @@ mod raw_to_geo {
     const BOXRIGHT: usize = 3;
 
     #[inline]
-    fn raw_bbox_to_aabb(raw: &[i16; 4]) -> geo::Aabb {
-        geo::Aabb {
+    fn raw_bbox_to_aabb(raw: &[i16; 4]) -> world::Aabb {
+        world::Aabb {
             min: Vec2::new(raw[BOXLEFT] as f32, raw[BOXBOTTOM] as f32),
             max: Vec2::new(raw[BOXRIGHT] as f32, raw[BOXTOP] as f32),
         }
     }
 
-    pub fn node_from(r: raw_level::RawNode) -> geo::Node {
-        geo::Node {
+    pub fn node_from(r: raw_level::RawNode) -> world::Node {
+        world::Node {
             x: r.x as f32,
             y: r.y as f32,
             dx: r.dx as f32,
@@ -260,11 +257,11 @@ mod raw_to_geo {
         }
     }
 
-    pub fn blockmap_from(r: raw_level::RawBlockmap) -> geo::Blockmap {
+    pub fn blockmap_from(r: raw_level::RawBlockmap) -> world::Blockmap {
         let cell_cnt = (r.width as usize) * (r.height as usize);
         let data_base = 4 + cell_cnt as i16; // header + offset table
 
-        let mut bm_lines: Vec<Vec<geo::LinedefId>> = vec![Vec::new(); cell_cnt];
+        let mut bm_lines: Vec<Vec<world::LinedefId>> = vec![Vec::new(); cell_cnt];
 
         for (cell, &off) in r.offsets.iter().enumerate() {
             // convert lump-relative word offset → index into `r.data`
@@ -274,12 +271,12 @@ mod raw_to_geo {
                 if v == -1 {
                     break;
                 }
-                bm_lines[cell].push(v as geo::LinedefId);
+                bm_lines[cell].push(v as world::LinedefId);
                 i += 1;
             }
         }
 
-        geo::Blockmap {
+        world::Blockmap {
             origin: vec2(r.origin_x as f32, r.origin_y as f32),
             width: r.width as i32,
             height: r.height as i32,
@@ -289,12 +286,12 @@ mod raw_to_geo {
 }
 
 /*====================================================================*/
-/*                  Palette / patch / texture helpers                 */
+/*                  world::Palette / patch / texture helpers                 */
 /*====================================================================*/
-fn load_palette(wad: &Wad) -> Option<Palette> {
+fn load_palette(wad: &Wad) -> Option<world::Palette> {
     let idx = wad.find_lump("PLAYPAL")?;
     let bytes = wad.lump_bytes(idx).ok()?;
-    let mut pal = Palette::default();
+    let mut pal = world::Palette::default();
     for i in 0..256 {
         pal[i] =
             (bytes[i * 3] as u32) << 16 | (bytes[i * 3 + 1] as u32) << 8 | bytes[i * 3 + 2] as u32;
@@ -302,7 +299,7 @@ fn load_palette(wad: &Wad) -> Option<Palette> {
     Some(pal)
 }
 
-fn load_colormap(wad: &Wad) -> Option<Colormap> {
+fn load_colormap(wad: &Wad) -> Option<world::Colormap> {
     // 1) Find the lump index
     let idx = wad.find_lump("COLORMAP")?;
 
@@ -315,7 +312,7 @@ fn load_colormap(wad: &Wad) -> Option<Colormap> {
     }
 
     // 4) Allocate the array-of-arrays
-    let mut cm = Colormap::default();
+    let mut cm = world::Colormap::default();
 
     // 5) Copy each 256-byte slice into its table
     for table in 0..34 {
@@ -329,7 +326,7 @@ fn load_colormap(wad: &Wad) -> Option<Colormap> {
 
 /*-------------------- patch cache -----------------------------------*/
 
-fn decode_all_patches(wad: &Wad) -> Result<Vec<Texture>, WadError> {
+fn decode_all_patches(wad: &Wad) -> Result<Vec<world::Texture>, WadError> {
     let idx = wad.find_lump("PNAMES").unwrap();
     let bytes = wad.lump_bytes(idx)?;
     let num = u32::from_le_bytes(bytes[0..4].try_into().unwrap()) as usize;
@@ -341,13 +338,13 @@ fn decode_all_patches(wad: &Wad) -> Result<Vec<Texture>, WadError> {
         if let Some(id) = wad.find_lump(name) {
             vec.push(decode_patch(name, wad.lump_bytes(id)?));
         } else {
-            vec.push(Texture::default()); // unlikely but keeps indices aligned
+            vec.push(world::Texture::default()); // unlikely but keeps indices aligned
         }
     }
     Ok(vec)
 }
 
-fn decode_patch(name: &str, raw: &[u8]) -> Texture {
+fn decode_patch(name: &str, raw: &[u8]) -> world::Texture {
     let w = u16::from_le_bytes(raw[0..2].try_into().unwrap()) as usize;
     let h = u16::from_le_bytes(raw[2..4].try_into().unwrap()) as usize;
     let mut pix = vec![0u8; w * h];
@@ -367,7 +364,7 @@ fn decode_patch(name: &str, raw: &[u8]) -> Texture {
             p += len + 1;
         }
     }
-    Texture {
+    world::Texture {
         name: name.into(),
         w,
         h,
@@ -377,7 +374,7 @@ fn decode_patch(name: &str, raw: &[u8]) -> Texture {
 
 /*-------------------- wall texture compose --------------------------*/
 
-fn build_wall_texture(wad: &Wad, patches: &[Texture], name: &str) -> Option<Texture> {
+fn build_wall_texture(wad: &Wad, patches: &[world::Texture], name: &str) -> Option<world::Texture> {
     for table in ["TEXTURE1", "TEXTURE2"] {
         let Some(idx) = wad.find_lump(table) else {
             continue;
@@ -400,7 +397,7 @@ fn build_wall_texture(wad: &Wad, patches: &[Texture], name: &str) -> Option<Text
     None
 }
 
-fn compose_texture(name: &str, entry: &[u8], patches: &[Texture]) -> Texture {
+fn compose_texture(name: &str, entry: &[u8], patches: &[world::Texture]) -> world::Texture {
     let w_tex = i16::from_le_bytes(entry[12..14].try_into().unwrap()) as usize;
     let h_tex = i16::from_le_bytes(entry[14..16].try_into().unwrap()) as usize;
     let np = u16::from_le_bytes(entry[20..22].try_into().unwrap()) as usize;
@@ -414,7 +411,7 @@ fn compose_texture(name: &str, entry: &[u8], patches: &[Texture]) -> Texture {
         blit_patch(&mut canvas, w_tex, h_tex, &patches[idx], ox, oy);
         pinfo = &pinfo[10..];
     }
-    Texture {
+    world::Texture {
         name: name.into(),
         w: w_tex,
         h: h_tex,
@@ -422,7 +419,7 @@ fn compose_texture(name: &str, entry: &[u8], patches: &[Texture]) -> Texture {
     }
 }
 
-fn blit_patch(dest: &mut [u8], dw: usize, dh: usize, p: &Texture, ox: i32, oy: i32) {
+fn blit_patch(dest: &mut [u8], dw: usize, dh: usize, p: &world::Texture, ox: i32, oy: i32) {
     for py in 0..p.h {
         let dy = oy + py as i32;
         if !(0..dh as i32).contains(&dy) {
@@ -443,7 +440,7 @@ fn blit_patch(dest: &mut [u8], dw: usize, dh: usize, p: &Texture, ox: i32, oy: i
 
 /*----------------------------- flats --------------------------------*/
 
-fn decode_flat(wad: &Wad, name: &str) -> Option<Texture> {
+fn decode_flat(wad: &Wad, name: &str) -> Option<world::Texture> {
     let idx = wad.find_lump(name)?;
     let bytes = wad.lump_bytes(idx).ok()?;
     if bytes.len() != 4096 {
@@ -453,7 +450,7 @@ fn decode_flat(wad: &Wad, name: &str) -> Option<Texture> {
     for &b in bytes {
         rgba.push(b);
     }
-    Some(Texture {
+    Some(world::Texture {
         name: name.into(),
         w: 64,
         h: 64,
@@ -461,7 +458,7 @@ fn decode_flat(wad: &Wad, name: &str) -> Option<Texture> {
     })
 }
 
-fn load_all_sprites(wad: &Wad, bank: &mut TextureBank) -> Result<(), LoadError> {
+fn load_all_sprites(wad: &Wad, bank: &mut world::TextureBank) -> Result<(), LoadError> {
     let start_index = wad.find_lump("S_START").ok_or(LoadError::NoSprites)? + 1;
     let end_index = wad.find_lump("S_END").ok_or(LoadError::NoSprites)?;
 
@@ -491,7 +488,7 @@ mod tests {
     #[test]
     fn level_and_textures_load() {
         let wad = Wad::from_file(doom_wad()).unwrap();
-        let mut bank = TextureBank::default_with_checker();
+        let mut bank = world::TextureBank::default_with_checker();
 
         let marker = wad.level_indices()[0]; // E1M1
         let lvl = load_level(&wad, marker, &mut bank).expect("load");
@@ -500,7 +497,7 @@ mod tests {
         assert!(lvl.vertices.len() > 300);
         assert!(bank.len() > 1);
 
-        let id = bank.id("STARTAN3").unwrap_or(NO_TEXTURE);
+        let id = bank.id("STARTAN3").unwrap_or(world::NO_TEXTURE);
         let tex = bank.texture(id).unwrap();
         assert_eq!(tex.w, 128);
         assert_eq!(tex.h, 128); // STARTAN textures are 128×128
@@ -508,7 +505,7 @@ mod tests {
 
     #[test]
     fn unknown_name_gets_checker() {
-        let bank = TextureBank::default_with_checker();
+        let bank = world::TextureBank::default_with_checker();
         // explicitly request missing name
         let id = bank.id_or_missing("NO_SUCH_TEXTURE_XYZ");
         assert_eq!(id, 0);

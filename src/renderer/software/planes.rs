@@ -1,14 +1,10 @@
-use crate::{
-    renderer::software::Software,
-    world::{
-        camera::Camera,
-        texture::{NO_TEXTURE, TextureBank, TextureId},
-    },
-};
 use glam::Vec2;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::ops::RangeInclusive;
+
+use super::Software;
+use crate::world::{Camera, NO_TEXTURE, TextureBank, TextureId};
 
 pub type VisplaneId = u16;
 

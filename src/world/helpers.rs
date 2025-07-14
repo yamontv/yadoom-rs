@@ -1,10 +1,15 @@
-use crate::world::camera::Camera;
-use crate::world::geometry::{Aabb, Level, Node, SubsectorId};
 use glam::Vec2;
+
+use super::Camera;
+use super::{Aabb, Level, Node, SubsectorId};
 
 pub const CHILD_MASK: u16 = 0x7FFF;
 
 pub const SUBSECTOR_BIT: u16 = 0x8000;
+
+/// size of one grid cell in world units
+const MAPBLOCKSHIFT: i32 = 7; // 2^7 = 128
+const MAPBLOCKSIZE: f32 = (1 << MAPBLOCKSHIFT) as f32;
 
 // ──────────────────────────────────────────────────────────────────────────
 //                       Level – public helpers
@@ -88,6 +93,49 @@ impl Level {
         if back_visible {
             self.walk_bsp(back, camera, subsectors);
         }
+    }
+
+    /// convert world-space x/y to integer block coords
+    #[inline]
+    fn world_to_block(x: f32, origin: f32) -> i32 {
+        ((x - origin) / MAPBLOCKSIZE).floor() as i32
+    }
+
+    /// vanilla-style iterator over *unique* linedefs that the axis-aligned
+    /// bounding box touches.  Stops early if func returns false.
+    pub fn block_lines_iter<F>(&self, bbox: Aabb, mut func: F) -> bool
+    where
+        F: FnMut(&crate::world::geometry::Linedef) -> bool,
+    {
+        let bm = &self.blockmap;
+        assert!(bm.width > 0 && bm.height > 0);
+
+        let mut visited = vec![false; self.linedefs.len()];
+
+        let bx1 = Self::world_to_block(bbox.min.x, bm.origin.x).clamp(0, bm.width - 1);
+        let by1 = Self::world_to_block(bbox.min.y, bm.origin.y).clamp(0, bm.height - 1);
+        let bx2 = Self::world_to_block(bbox.max.x, bm.origin.x).clamp(0, bm.width - 1);
+        let by2 = Self::world_to_block(bbox.max.y, bm.origin.y).clamp(0, bm.height - 1);
+
+        for by in by1..=by2 {
+            for bx in bx1..=bx2 {
+                let cell = (by * bm.width + bx) as usize;
+                for &li in &bm.lines[cell] {
+                    let idx = li as usize;
+                    if visited[idx] {
+                        continue;
+                    }
+                    visited[idx] = true;
+
+                    let line = &self.linedefs[idx];
+
+                    if !func(line) {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
     }
 }
 
@@ -178,8 +226,8 @@ impl Aabb {
 #[cfg(test)]
 mod tests {
     use crate::{
-        wad::{loader, raw::Wad},
-        world::texture::TextureBank,
+        wad::{Wad, load_level},
+        world::TextureBank,
     };
     use std::path::PathBuf;
 
@@ -193,7 +241,7 @@ mod tests {
     fn point_side_matches_bbox() {
         let wad = Wad::from_file(doom_wad()).unwrap();
         let mut bank = TextureBank::default_with_checker();
-        let lvl = loader::load_level(&wad, wad.level_indices()[0], &mut bank).unwrap();
+        let lvl = load_level(&wad, wad.level_indices()[0], &mut bank).unwrap();
         let root = &lvl.nodes[lvl.bsp_root() as usize];
 
         for side in 0..=1 {

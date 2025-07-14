@@ -19,7 +19,7 @@ pub struct Level {
     pub linedefs: Vec<Linedef>,
     pub sidedefs: Vec<Sidedef>,
     pub vertices: Vec<Vertex>,
-    pub segs: Vec<Seg>,
+    pub segs: Vec<Segment>,
     pub subsectors: Vec<Subsector>,
     pub nodes: Vec<Node>,
     pub sectors: Vec<Sector>,
@@ -90,7 +90,7 @@ pub struct Vertex {
 }
 
 #[derive(Clone, Debug)]
-pub struct Seg {
+pub struct Segment {
     pub v1: VertexId,
     pub v2: VertexId,
     pub linedef: LinedefId,
@@ -107,7 +107,7 @@ pub struct Subsector {
     pub things: Vec<ThingId>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Aabb {
     pub min: Vec2, // (x_min, z_min)
     pub max: Vec2, // (x_max, z_max)

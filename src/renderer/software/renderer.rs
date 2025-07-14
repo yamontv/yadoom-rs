@@ -1,13 +1,12 @@
 use crate::{
-    renderer::software::{
-        planes::PlaneMap,
-        sprites::{DrawSeg, FrameScratch, VisSprite},
-    },
     renderer::{Renderer, Rgba},
     sim::TicRunner,
-    world::camera::Camera,
-    world::geometry::{Level, SubsectorId},
-    world::texture::TextureBank,
+    world::{Camera, Level, SubsectorId, TextureBank},
+};
+
+use super::{
+    planes::PlaneMap,
+    sprites::{DrawSeg, FrameScratch, VisSprite},
 };
 
 #[derive(Default)]

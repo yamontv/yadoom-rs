@@ -9,7 +9,7 @@ use smallvec::SmallVec;
 
 use super::{ActorFlags, Anim, Class, Pos, Subsector, Vel};
 use crate::defs::{State, flags::MobjFlags};
-use crate::world::geometry::{Aabb, Level, Linedef, LinedefFlags, LinedefId};
+use crate::world::{Aabb, Level, Linedef, LinedefFlags, LinedefId};
 
 /* ----------------------------------------------------------------- */
 /*  Physics constants (f32 map-units)                                */
@@ -320,20 +320,19 @@ pub struct CheckResult {
 fn p_check_position(level: &Level, class: &Class, is_player: bool, dest: Vec2) -> CheckResult {
     let radius = class.0.radius as f32;
 
-    /* — locate subsector & initialise floor / ceiling — */
+    /* locate subsector & initialise floor / ceiling */
     let ss_idx = level.locate_subsector(dest);
     let ssd = &level.subsectors[ss_idx as usize];
     let sector = &level.sectors[ssd.sector as usize];
 
-    /* — bounding box the actor’s cylinder occupies — */
-    let bb_min = dest - Vec2::splat(radius);
-    let bb_max = dest + Vec2::splat(radius);
+    /* bounding box the actor’s cylinder occupies */
+    let bbox = Aabb {
+        min: dest - Vec2::splat(radius),
+        max: dest + Vec2::splat(radius),
+    };
 
     let mut ctx = CheckCtx {
-        bbox: Aabb {
-            min: bb_min,
-            max: bb_max,
-        },
+        bbox,
         floor_z: sector.floor_h,
         ceiling_z: sector.ceil_h,
         dropoff_z: sector.floor_h,
@@ -343,9 +342,7 @@ fn p_check_position(level: &Level, class: &Class, is_player: bool, dest: Vec2) -
         special_lines: SmallVec::<[LinedefId; 4]>::new(),
     };
 
-    let blocked = !block_lines_iter(level, bb_min, bb_max, |ld| {
-        pit_check_line(level, ld, &mut ctx)
-    });
+    let blocked = !level.block_lines_iter(bbox, |ld| pit_check_line(level, ld, &mut ctx));
 
     CheckResult {
         blocked,
@@ -355,55 +352,6 @@ fn p_check_position(level: &Level, class: &Class, is_player: bool, dest: Vec2) -
         subsector: ss_idx,
         special_lines: ctx.special_lines,
     }
-}
-
-/*────────────────────  BLOCKMAP helpers  ────────────────────*/
-
-/// size of one grid cell in world units (Doom constant)
-const MAPBLOCKSHIFT: i32 = 7; // 2^7 = 128
-const MAPBLOCKSIZE: f32 = (1 << MAPBLOCKSHIFT) as f32;
-
-/// convert world-space x/y to integer block coords
-#[inline]
-fn world_to_block(x: f32, origin: f32) -> i32 {
-    ((x - origin) / MAPBLOCKSIZE).floor() as i32
-}
-
-/// vanilla-style iterator over *unique* linedefs that the axis-aligned
-/// bounding box [min,max] touches.  Stops early if func returns false.
-fn block_lines_iter<F>(level: &Level, bb_min: Vec2, bb_max: Vec2, mut func: F) -> bool
-where
-    F: FnMut(&crate::world::geometry::Linedef) -> bool,
-{
-    let bm = &level.blockmap;
-    assert!(bm.width > 0 && bm.height > 0);
-
-    let mut visited = vec![false; level.linedefs.len()];
-
-    let bx1 = world_to_block(bb_min.x, bm.origin.x).clamp(0, bm.width - 1);
-    let by1 = world_to_block(bb_min.y, bm.origin.y).clamp(0, bm.height - 1);
-    let bx2 = world_to_block(bb_max.x, bm.origin.x).clamp(0, bm.width - 1);
-    let by2 = world_to_block(bb_max.y, bm.origin.y).clamp(0, bm.height - 1);
-
-    for by in by1..=by2 {
-        for bx in bx1..=bx2 {
-            let cell = (by * bm.width + bx) as usize;
-            for &li in &bm.lines[cell] {
-                let idx = li as usize;
-                if visited[idx] {
-                    continue;
-                }
-                visited[idx] = true;
-
-                let line = &level.linedefs[idx];
-
-                if !func(line) {
-                    return false;
-                }
-            }
-        }
-    }
-    true
 }
 
 /*================================================================ */

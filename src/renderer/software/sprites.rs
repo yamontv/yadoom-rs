@@ -1,17 +1,13 @@
+use bitflags::bitflags;
 use std::ops::Range;
 
 use crate::{
     defs::flags::MobjFlags as MF,
-    renderer::software::{Software, projection::Edge},
     sim,
-    sim::TicRunner,
-    world::{
-        camera::Camera,
-        geometry::{Level, SegmentId, SubsectorId},
-        texture::{NO_TEXTURE, TextureBank, TextureId},
-    },
+    world::{Camera, Level, NO_TEXTURE, SegmentId, SubsectorId, TextureBank, TextureId},
 };
-use bitflags::bitflags;
+
+use super::{Software, projection::Edge};
 
 #[derive(Default)]
 pub struct FrameScratch {
@@ -156,7 +152,7 @@ impl Software {
     pub fn collect_sprites_for_subsector(
         &mut self,
         ss_idx: SubsectorId,
-        sim: &TicRunner,
+        sim: &sim::TicRunner,
         camera: &Camera,
         tex_bank: &TextureBank,
     ) {

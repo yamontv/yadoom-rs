@@ -1,11 +1,12 @@
 use minifb::{Key, KeyRepeat, Window, WindowOptions};
 use std::time::{Duration, Instant};
+
 use yadoom_rs::{
-    renderer::{Renderer, software::Software},
+    renderer::{Renderer, Software},
     sim::player_input,
     sim::{Angle, InputCmd, Pos, TicRunner},
-    wad::{loader, raw::Wad},
-    world::{camera::Camera, geometry::SubsectorId, texture::TextureBank},
+    wad::{Wad, load_level},
+    world::{Camera, SubsectorId, TextureBank},
 };
 
 const W: usize = 1280;
@@ -19,7 +20,7 @@ fn main() -> anyhow::Result<()> {
     let wad = Wad::from_file(&wad_path)?;
 
     let mut texture_bank = TextureBank::default_with_checker();
-    let mut level = loader::load_level(&wad, wad.level_indices()[map_idx], &mut texture_bank)?;
+    let mut level = load_level(&wad, wad.level_indices()[map_idx], &mut texture_bank)?;
     level.finalise_bsp();
 
     let mut sim = TicRunner::new();

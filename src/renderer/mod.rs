@@ -1,11 +1,7 @@
 //! Rendering abstraction layer.
 use crate::{
     sim::TicRunner,
-    world::{
-        camera::Camera,
-        geometry::{Level, SubsectorId},
-        texture::TextureBank,
-    },
+    world::{Camera, Level, SubsectorId, TextureBank},
 };
 
 /// Pixel format of the software frame-buffer (0x00RRGGBB).
@@ -30,4 +26,5 @@ pub trait Renderer {
         F: FnOnce(&[Rgba], usize, usize);
 }
 
-pub mod software;
+mod software;
+pub use software::Software;

@@ -1,8 +1,7 @@
 use glam::Vec2;
 
-use crate::renderer::software::Software;
-use crate::world::camera::Camera;
-use crate::world::geometry::{Level, SegmentId};
+use super::Software;
+use crate::world::{Camera, Level, SegmentId};
 
 #[derive(Clone, Copy)]
 pub struct Edge {
