@@ -23,7 +23,7 @@ fn main() -> anyhow::Result<()> {
     let mut level = load_level(&wad, wad.level_indices()[map_idx], &mut texture_bank)?;
     level.finalise_bsp();
 
-    let mut sim = TicRunner::new();
+    let mut sim = TicRunner::new(&level);
 
     for thing in &level.things {
         if let Some(info) = yadoom_rs::defs::by_doomednum(thing.type_id) {

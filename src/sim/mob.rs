@@ -1,4 +1,4 @@
-use super::{ActorFlags, Angle, Anim, Class, Pos, Subsector, Vel};
+use super::{ActorFlags, Angle, Anim, Class, Pos, Subsector, ThingGrid, ThingSpatial, Vel};
 use crate::defs::{MobjInfo, flags::MobjFlags};
 use crate::world::Level;
 use glam::{Vec2, Vec3};
@@ -6,6 +6,7 @@ use hecs::World;
 
 pub fn spawn_mobj(
     world: &mut World,
+    thing_grid: &mut ThingGrid,
     level: &Level,
     info: &'static MobjInfo,
     x: f32,
@@ -22,9 +23,13 @@ pub fn spawn_mobj(
         sector.floor_h
     };
 
-    world.spawn((
-        ActorFlags(info.flags),
-        Pos(Vec2::new(x, y), z),
+    let pos = Pos(Vec2::new(x, y), z);
+    let class = Class(info);
+    let flags = ActorFlags(info.flags);
+
+    let ent = world.spawn((
+        flags,
+        pos,
         Vel(Vec3::ZERO),
         Angle(angle),
         Subsector(subsector),
@@ -32,6 +37,15 @@ pub fn spawn_mobj(
             state: info.spawnstate,
             tics: info.spawnstate.tics(),
         },
-        Class(info),
-    ))
+        class,
+    ));
+
+    thing_grid.insert(ThingSpatial {
+        ent,
+        pos,
+        class,
+        flags,
+    });
+
+    ent
 }

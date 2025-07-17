@@ -1,7 +1,7 @@
 use glam::{Vec2, Vec3};
 use hecs::World;
 
-use super::{tic::DT, xy_movement_system};
+use super::{tic::DT, xy_movement_system, spacial::ThingGrid};
 use crate::defs::MobjInfo;
 use crate::defs::flags::MobjFlags;
 use crate::defs::state::State;
@@ -70,8 +70,8 @@ pub fn animation(world: &mut World) {
 pub const MOVE_SPEED: f32 = 250.0; // map-units / second
 pub const TURN_RATE: f32 = std::f32::consts::PI; // rad / second (180°/s)
 pub const MAX_STEP_HEIGHT: f32 = 24.0; // max step 24 mu without a jump button */
-pub fn physics(world: &mut World, level: &Level) {
-    xy_movement_system(world, level);
+pub fn physics(world: &mut World, thing_grid: &mut ThingGrid, level: &Level) {
+    xy_movement_system(world, thing_grid, level);
     // for (_, (pos, vel, ssec, class)) in
     //     world.query_mut::<(&mut Pos, &mut Vel, &mut Subsector, &Class)>()
     // {

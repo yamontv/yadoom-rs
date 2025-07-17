@@ -1,7 +1,8 @@
-use super::{mob, systems};
-use crate::world::Level;
 use hecs::World;
 use std::time::{Duration, Instant};
+
+use super::{ThingGrid, mob, systems};
+use crate::world::Level;
 
 pub const SIM_FPS: u32 = 35;
 pub const DT: f32 = 1.0 / SIM_FPS as f32;
@@ -10,19 +11,15 @@ const TIC: Duration = Duration::from_micros(1_000_000 / SIM_FPS as u64);
 /// Owns the ECS world and drives all game‑logic systems.
 pub struct TicRunner {
     world: World,
+    thing_grid: ThingGrid,
     last: Instant,
 }
 
-impl Default for TicRunner {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl TicRunner {
-    pub fn new() -> Self {
+    pub fn new(level: &Level) -> Self {
         Self {
             world: World::new(),
+            thing_grid: ThingGrid::new(level.blockmap.origin),
             last: Instant::now(),
         }
     }
@@ -48,7 +45,16 @@ impl TicRunner {
         angle: f32,
         subsector: u16,
     ) -> hecs::Entity {
-        mob::spawn_mobj(&mut self.world, level, info, x, y, angle, subsector)
+        mob::spawn_mobj(
+            &mut self.world,
+            &mut self.thing_grid,
+            level,
+            info,
+            x,
+            y,
+            angle,
+            subsector,
+        )
     }
 
     /// Advance enough tics to synchronise simulation with real time.
@@ -64,7 +70,7 @@ impl TicRunner {
     /* ---------------------------------------------------------------- */
     fn tick(&mut self, level: &Level) {
         systems::animation(&mut self.world);
-        systems::physics(&mut self.world, level);
+        systems::physics(&mut self.world, &mut self.thing_grid, level);
         // TODO: AI, door, platform systems go here.
     }
 }

@@ -7,6 +7,7 @@ use glam::{Vec2, Vec3};
 use hecs::{Entity, World};
 use smallvec::SmallVec;
 
+use super::spacial::{ThingGrid, ThingSpatial};
 use super::{ActorFlags, Anim, Class, Pos, Subsector, Vel};
 use crate::defs::{State, flags::MobjFlags};
 use crate::world::{Aabb, Level, Linedef, LinedefFlags, LinedefId};
@@ -32,7 +33,7 @@ type Actions = SmallVec<[Action; 2]>;
 /*  Public system                                                    */
 /* ================================================================= */
 
-pub fn xy_movement_system(world: &mut World, level: &Level) {
+pub fn xy_movement_system(world: &mut World, thing_grid: &mut ThingGrid, level: &Level) {
     let mut queue = Actions::new();
 
     {
@@ -46,7 +47,7 @@ pub fn xy_movement_system(world: &mut World, level: &Level) {
         )>();
 
         for (e, (p, v, f, c, ss, an)) in query {
-            queue.extend(p_xy_movement(level, e, p, v, f, c, ss, an));
+            queue.extend(p_xy_movement(level, thing_grid, e, p, v, f, c, ss, an));
         }
     }
 
@@ -66,6 +67,7 @@ pub fn xy_movement_system(world: &mut World, level: &Level) {
 #[allow(clippy::too_many_arguments)]
 fn p_xy_movement(
     level: &Level,
+    thing_grid: &mut ThingGrid,
     ent: Entity,
     pos: &mut Pos,
     vel: &mut Vel,
@@ -110,8 +112,11 @@ fn p_xy_movement(
 
         if !p_try_move(
             level,
+            thing_grid,
+            ent,
             pos,
             subsector,
+            flags,
             class,
             is_player,
             dest,
@@ -166,14 +171,24 @@ fn get_floor_z(level: &Level, sub: &Subsector) -> f32 {
 #[allow(clippy::too_many_arguments)]
 fn p_try_move(
     level: &Level,
+    grid: &mut ThingGrid,
+    ent: Entity,
     pos: &mut Pos,
     sub: &mut Subsector,
+    flags: &mut ActorFlags,
     class: &Class,
     is_player: bool,
     dest: Vec2,
     slide_nrm: &mut Option<Vec2>,
 ) -> bool {
-    let check = p_check_position(level, class, is_player, dest);
+    let mut thing = ThingSpatial {
+        ent,
+        pos: *pos,
+        class: *class,
+        flags: *flags,
+    };
+
+    let check = p_check_position(level, grid, &thing, is_player, dest);
 
     if check.blocked
         || check.ceiling_z - check.floor_z < class.0.height as f32
@@ -187,11 +202,12 @@ fn p_try_move(
     p_cross_special_lines(level, dest, pos.0, check.special_lines);
 
     // relink
-    p_unset_thing_position(pos, sub);
+    p_unset_thing_position(grid, &thing);
     pos.0 = dest;
     pos.1 = check.floor_z;
     sub.0 = check.subsector;
-    p_set_thing_position(pos, sub);
+    thing.pos = *pos;
+    p_set_thing_position(grid, thing);
 
     true
 }
@@ -317,8 +333,14 @@ pub struct CheckResult {
 
 /// Full collision test (lines + things) at <dest>.
 /// *Return `None` for a solid block; otherwise return floor/ceiling data.*
-fn p_check_position(level: &Level, class: &Class, is_player: bool, dest: Vec2) -> CheckResult {
-    let radius = class.0.radius as f32;
+fn p_check_position(
+    level: &Level,
+    grid: &ThingGrid,
+    thing: &ThingSpatial,
+    is_player: bool,
+    dest: Vec2,
+) -> CheckResult {
+    let radius = thing.class.0.radius as f32;
 
     /* locate subsector & initialise floor / ceiling */
     let ss_idx = level.locate_subsector(dest);
@@ -337,12 +359,13 @@ fn p_check_position(level: &Level, class: &Class, is_player: bool, dest: Vec2) -
         ceiling_z: sector.ceil_h,
         dropoff_z: sector.floor_h,
         ceilingline: None,
-        thing_is_missile: class.0.flags.contains(MobjFlags::MISSILE),
+        thing_is_missile: thing.class.0.flags.contains(MobjFlags::MISSILE),
         thins_is_player: is_player,
         special_lines: SmallVec::<[LinedefId; 4]>::new(),
     };
 
-    let blocked = !level.block_lines_iter(bbox, |ld| pit_check_line(level, ld, &mut ctx));
+    let blocked = !grid.for_each_in_bbox(bbox, |other| !pit_check_thing(thing, other, dest))
+        || !level.block_lines_iter(bbox, |ld| pit_check_line(level, ld, &mut ctx));
 
     CheckResult {
         blocked,
@@ -354,18 +377,95 @@ fn p_check_position(level: &Level, class: &Class, is_player: bool, dest: Vec2) -
     }
 }
 
+pub fn pit_check_thing(self_stub: &ThingSpatial, other: &ThingSpatial, dest: Vec2) -> bool {
+    /* ─── early outs ─────────────────────────────────────────────── */
+
+    // ignore non‑solid, non‑special, non‑shootable actors
+    if !other
+        .flags
+        .0
+        .intersects(MobjFlags::SOLID | MobjFlags::SPECIAL | MobjFlags::SHOOTABLE)
+    {
+        return false;
+    }
+
+    // never collide with ourselves
+    if other.ent == self_stub.ent {
+        return false;
+    }
+
+    // distance check in the XY plane
+    let block_dist = (other.class.0.radius + self_stub.class.0.radius) as f32;
+    if (other.pos.0.x - dest.x).abs() >= block_dist || (other.pos.0.y - dest.y).abs() >= block_dist
+    {
+        return false; // no overlap
+    }
+
+    /* ─── SKULLFLY (charging lost‑soul) --------------------------- */
+    if self_stub.flags.0.contains(MobjFlags::SKULLFLY) {
+        // TODO: call P_DamageMobj(other, self, self, ...)
+        //       reset SKULLFLY state + momentum
+        return true;
+    }
+
+    /* ─── MISSILE vs. things -------------------------------------- */
+    if self_stub.flags.0.contains(MobjFlags::MISSILE) {
+        // vertical pass‑over test
+        if self_stub.pos.1 > (other.pos.1 + other.class.0.height as f32) {
+            return false; // overhead
+        }
+        if (self_stub.pos.1 + self_stub.class.0.height as f32) < other.pos.1 {
+            return false; // underneath
+        }
+
+        // same‑species optimisation
+        // if let Some(origin_target) = None {
+        //     // TODO store the missile's owner in the stub and skip
+        //     //      damage check if `origin_target.kind == other.kind`
+        // }
+
+        if !other.flags.0.contains(MobjFlags::SHOOTABLE) {
+            return if other.flags.0.contains(MobjFlags::SOLID) {
+                true
+            } else {
+                false
+            };
+        }
+
+        // TODO: apply missile damage, spawn explosion, etc.
+        return true;
+    }
+
+    /* ─── SPECIAL pickup ------------------------------------------ */
+    if other.flags.0.contains(MobjFlags::SPECIAL) {
+        let solid = other.flags.0.contains(MobjFlags::SOLID);
+
+        if self_stub.flags.0.contains(MobjFlags::PICKUP) {
+            // TODO: P_TouchSpecialThing(other,self)
+        }
+        return if solid { true } else { false };
+    }
+
+    /* ─── ordinary solid collision -------------------------------- */
+    if other.flags.0.contains(MobjFlags::SOLID) {
+        true
+    } else {
+        false
+    }
+}
+
 /*================================================================ */
 /* ===  Small helper *stubs*  ==================================== */
 /*================================================================ */
 
 /// Remove the actor from the spatial data-structures (blockmap / BSP).
-fn p_unset_thing_position(_pos: &Pos, _sub: &Subsector) {
-    /* TODO */
+fn p_unset_thing_position(grid: &mut ThingGrid, thing: &ThingSpatial) {
+    grid.remove(thing);
 }
 
 /// Re-link the actor at its new coordinates.
-fn p_set_thing_position(_pos: &Pos, _sub: &Subsector) {
-    /* TODO */
+fn p_set_thing_position(grid: &mut ThingGrid, thing: ThingSpatial) {
+    grid.insert(thing);
 }
 
 /// Check special lines crossed between <old_xy> → <new_xy>.

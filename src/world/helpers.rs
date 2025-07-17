@@ -97,7 +97,7 @@ impl Level {
 
     /// convert world-space x/y to integer block coords
     #[inline]
-    fn world_to_block(x: f32, origin: f32) -> i32 {
+    pub fn world_to_block(x: f32, origin: f32) -> i32 {
         ((x - origin) / MAPBLOCKSIZE).floor() as i32
     }
 
