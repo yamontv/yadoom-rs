@@ -7,6 +7,7 @@ pub mod states;
 
 pub use self::{
     action::Action,
+    flags::MobjFlags,
     mobjinfo::{MOBJINFO, MobjInfo},
     sound::Sound,
     state::State,

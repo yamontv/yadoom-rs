@@ -8,7 +8,7 @@ use hecs::{Entity, World};
 use smallvec::SmallVec;
 
 use super::spacial::{ThingGrid, ThingSpatial};
-use super::{ActorFlags, Anim, Class, Pos, Subsector, Vel};
+use super::{ActorFlags, Animation, Class, Position, Subsector, Velocity};
 use crate::defs::{State, flags::MobjFlags};
 use crate::world::{Aabb, Level, Linedef, LinedefFlags, LinedefId};
 
@@ -38,12 +38,12 @@ pub fn xy_movement_system(world: &mut World, thing_grid: &mut ThingGrid, level: 
 
     {
         let query = world.query_mut::<(
-            &mut Pos,
-            &mut Vel,
+            &mut Position,
+            &mut Velocity,
             &mut ActorFlags,
             &Class,
             &mut Subsector,
-            &mut Anim,
+            &mut Animation,
         )>();
 
         for (e, (p, v, f, c, ss, an)) in query {
@@ -69,12 +69,12 @@ fn p_xy_movement(
     level: &Level,
     thing_grid: &mut ThingGrid,
     ent: Entity,
-    pos: &mut Pos,
-    vel: &mut Vel,
+    pos: &mut Position,
+    vel: &mut Velocity,
     flags: &mut ActorFlags,
     class: &Class,
     subsector: &mut Subsector,
-    anim: &mut Anim,
+    anim: &mut Animation,
 ) -> Actions {
     let mut acts = Actions::new();
 
@@ -173,7 +173,7 @@ fn p_try_move(
     level: &Level,
     grid: &mut ThingGrid,
     ent: Entity,
-    pos: &mut Pos,
+    pos: &mut Position,
     sub: &mut Subsector,
     flags: &mut ActorFlags,
     class: &Class,
@@ -460,12 +460,16 @@ pub fn pit_check_thing(self_stub: &ThingSpatial, other: &ThingSpatial, dest: Vec
 
 /// Remove the actor from the spatial data-structures (blockmap / BSP).
 fn p_unset_thing_position(grid: &mut ThingGrid, thing: &ThingSpatial) {
-    grid.remove(thing);
+    if !thing.flags.0.contains(MobjFlags::NOBLOCKMAP) {
+        grid.remove(thing);
+    }
 }
 
 /// Re-link the actor at its new coordinates.
 fn p_set_thing_position(grid: &mut ThingGrid, thing: ThingSpatial) {
-    grid.insert(thing);
+    if !thing.flags.0.contains(MobjFlags::NOBLOCKMAP) {
+        grid.insert(thing);
+    }
 }
 
 /// Check special lines crossed between <old_xy> → <new_xy>.
@@ -481,8 +485,8 @@ fn p_cross_special_lines(
 /*----------------- helper stubs to fill later -----------------*/
 fn p_slide_move(
     _level: &Level,
-    _pos: &mut Pos,
-    _vel: &mut Vel,
+    _pos: &mut Position,
+    _vel: &mut Velocity,
     _class: &Class,
     _slide_nrm: &Option<Vec2>,
 ) {
@@ -490,7 +494,7 @@ fn p_slide_move(
 }
 
 fn p_set_mobj_state(world: &mut World, entity: Entity, new_state: State) {
-    if let Ok(mut anim) = world.get::<&mut Anim>(entity) {
+    if let Ok(mut anim) = world.get::<&mut Animation>(entity) {
         anim.state = new_state;
     }
     /* TODO */

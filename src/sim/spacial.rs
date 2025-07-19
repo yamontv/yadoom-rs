@@ -4,10 +4,6 @@
 //! * Each cell keeps a `SmallVec` – Doom maps rarely exceed a handful
 //!   of live mobjs per block, so this is fast and allocation‑free in
 //!   the common case.
-//!
-//! The grid is **write‑through** from the movement system:
-//! `p_unset_thing_position` removes the stub from the old cell;
-//! `p_set_thing_position` reinserts it at the new coords.
 
 use glam::Vec2;
 use hecs::Entity;
@@ -16,7 +12,7 @@ use std::collections::HashMap;
 
 use crate::world::{Aabb, Level};
 
-use super::{ActorFlags, Class, Pos};
+use super::{ActorFlags, Class, Position};
 
 /*──────────────────────── core types ────────────────────────*/
 
@@ -24,14 +20,10 @@ use super::{ActorFlags, Class, Pos};
 #[derive(Clone, Copy)]
 pub struct ThingSpatial {
     pub ent: Entity,
-    pub pos: Pos,
+    pub pos: Position,
     pub class: Class,
     pub flags: ActorFlags,
 }
-
-/// Row / column index in the static `BLOCKMAP` grid
-pub type Bx = i32;
-pub type By = i32;
 
 /// Small fixed‑capacity cell
 type Cell = SmallVec<[ThingSpatial; 8]>;
@@ -39,7 +31,7 @@ type Cell = SmallVec<[ThingSpatial; 8]>;
 /// Hash‑map grid (sparse – only allocated where something lives)
 pub struct ThingGrid {
     origin: Vec2,
-    cells: HashMap<(Bx, By), Cell>,
+    cells: HashMap<(i32, i32), Cell>,
 }
 
 /*───────────────────────── API ──────────────────────────────*/
@@ -61,9 +53,6 @@ impl ThingGrid {
     }
 
     /// Remove the stub from the cell it used to occupy.
-    ///
-    /// *Call this **before** you move the actor; provide the old
-    /// position so we do not need to recalculate it.*
     #[inline]
     pub fn remove(&mut self, stub: &ThingSpatial) {
         let bx = Level::world_to_block(stub.pos.0.x, self.origin.x);

@@ -1,4 +1,6 @@
-use super::{ActorFlags, Angle, Anim, Class, Pos, Subsector, ThingGrid, ThingSpatial, Vel};
+use super::{
+    ActorFlags, Angle, Animation, Class, Position, Subsector, ThingGrid, ThingSpatial, Velocity,
+};
 use crate::defs::{MobjInfo, flags::MobjFlags};
 use crate::world::Level;
 use glam::{Vec2, Vec3};
@@ -23,29 +25,31 @@ pub fn spawn_mobj(
         sector.floor_h
     };
 
-    let pos = Pos(Vec2::new(x, y), z);
+    let pos = Position(Vec2::new(x, y), z);
     let class = Class(info);
     let flags = ActorFlags(info.flags);
 
     let ent = world.spawn((
         flags,
         pos,
-        Vel(Vec3::ZERO),
+        Velocity(Vec3::ZERO),
         Angle(angle),
         Subsector(subsector),
-        Anim {
+        Animation {
             state: info.spawnstate,
             tics: info.spawnstate.tics(),
         },
         class,
     ));
 
-    thing_grid.insert(ThingSpatial {
-        ent,
-        pos,
-        class,
-        flags,
-    });
+    if !flags.0.contains(MobjFlags::NOBLOCKMAP) {
+        thing_grid.insert(ThingSpatial {
+            ent,
+            pos,
+            class,
+            flags,
+        });
+    }
 
     ent
 }

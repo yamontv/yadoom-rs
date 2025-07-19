@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use yadoom_rs::{
     renderer::{Renderer, Software},
     sim::player_input,
-    sim::{Angle, InputCmd, Pos, TicRunner},
+    sim::{Angle, InputCmd, Position, TicRunner},
     wad::{Wad, load_level},
     world::{Camera, SubsectorId, TextureBank},
 };
@@ -141,7 +141,7 @@ fn main() -> anyhow::Result<()> {
 
         sim.pump(&level);
 
-        if let Ok(mut q) = sim.world().query_one::<(&Pos, &Angle)>(player_ent) {
+        if let Ok(mut q) = sim.world().query_one::<(&Position, &Angle)>(player_ent) {
             if let Some((pos, ang)) = q.get() {
                 camera.pos.x = pos.0.x;
                 camera.pos.y = pos.0.y;

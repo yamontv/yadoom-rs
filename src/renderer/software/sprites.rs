@@ -163,8 +163,8 @@ impl Software {
         for (_, (pos, anim, angle, class, ssec)) in sim
             .world()
             .query::<(
-                &sim::Pos,
-                &sim::Anim,
+                &sim::Position,
+                &sim::Animation,
                 &sim::Angle,
                 &sim::Class,
                 &sim::Subsector,
