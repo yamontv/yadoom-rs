@@ -425,11 +425,7 @@ pub fn pit_check_thing(self_stub: &ThingSpatial, other: &ThingSpatial, dest: Vec
         // }
 
         if !other.flags.0.contains(MobjFlags::SHOOTABLE) {
-            return if other.flags.0.contains(MobjFlags::SOLID) {
-                true
-            } else {
-                false
-            };
+            return other.flags.0.contains(MobjFlags::SOLID);
         }
 
         // TODO: apply missile damage, spawn explosion, etc.
@@ -443,15 +439,11 @@ pub fn pit_check_thing(self_stub: &ThingSpatial, other: &ThingSpatial, dest: Vec
         if self_stub.flags.0.contains(MobjFlags::PICKUP) {
             // TODO: P_TouchSpecialThing(other,self)
         }
-        return if solid { true } else { false };
+        return solid;
     }
 
     /* ─── ordinary solid collision -------------------------------- */
-    if other.flags.0.contains(MobjFlags::SOLID) {
-        true
-    } else {
-        false
-    }
+    other.flags.0.contains(MobjFlags::SOLID)
 }
 
 /*================================================================ */
